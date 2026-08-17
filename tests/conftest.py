@@ -4,9 +4,9 @@ Shared pytest fixtures for the Instant Sahay FAQ bot tests.
 Provides:
 - Temporary ChromaDB directory (auto-cleaned)
 - Temporary SQLite DB (auto-cleaned)
-- A mock Ollama embedding function (deterministic, no real API call)
+- A mock embedding function (deterministic, no real model needed)
 - Pre-ingested collections for both bots
-- FastAPI TestClient with auth bypass
+- FastAPI TestClient with API key auth bypass
 """
 
 from __future__ import annotations
@@ -34,11 +34,11 @@ if str(PROJECT_ROOT) not in sys.path:
 # ---------------------------------------------------------------------------
 
 # We use a simple hash-based deterministic embedding so tests don't need
-# a real Ollama instance.  The vectors won't be semantically meaningful,
-# but we can still test the full pipeline by controlling what gets ingested
-# and what gets queried.
+# a real sentence-transformers model.  The vectors won't be semantically
+# meaningful, but we can still test the full pipeline by controlling what
+# gets ingested and what gets queried.
 
-_EMBEDDING_DIM = 768  # matches nomic-embed-text
+_EMBEDDING_DIM = 384  # matches all-MiniLM-L6-v2
 
 
 def _mock_embed_text(text: str, **kwargs) -> list[float]:
@@ -104,18 +104,23 @@ def _temp_dirs(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("shared.config.CHROMA_PERSIST_DIR", str(chroma_dir))
     monkeypatch.setattr("shared.config.SQLITE_DB_PATH", str(sqlite_path))
 
-    # Also clear thread-local SQLite connections so they pick up the new path
+    # Clear thread-local SQLite connections so they pick up the new path
     import shared.logging_store as ls
     if hasattr(ls._LOCAL, "conn"):
         del ls._LOCAL.conn
 
+    import shared.api_keys as ak
+    if hasattr(ak._LOCAL, "api_conn"):
+        del ak._LOCAL.api_conn
+
     # Initialise the DB in the temp location
     ls.init_db()
+    ak.init_api_key_tables()
 
 
 @pytest.fixture(autouse=True)
-def _mock_ollama(monkeypatch):
-    """Patch Ollama calls to use deterministic mock embeddings.
+def _mock_embeddings(monkeypatch):
+    """Patch embedding calls to use deterministic mock embeddings.
 
     We patch both the source module AND every consuming module that did
     ``from shared.embeddings import embed_text/embed_batch``, because
@@ -169,27 +174,19 @@ def partner_graph(ingested_data):
 @pytest.fixture()
 def test_client(ingested_data) -> TestClient:
     """
-    FastAPI TestClient with auth checks bypassed for test convenience.
+    FastAPI TestClient with API key auth bypassed for test convenience.
 
-    In production, JWTs would be validated; here we inject a fake user
-    via dependency override.
+    In production, API keys would be validated and credits deducted;
+    here we override the dependency to skip auth.
     """
     from server import app
-    from shared.auth import get_current_user
-    from shared.rate_limiter import rate_limit_dependency, reset_rate_limits
+    from shared.auth import verify_api_key
 
-    # Reset rate limits between tests
-    reset_rate_limits()
+    # Override API key auth to return a fake key record
+    async def _fake_api_key():
+        return {"id": 1, "owner_email": "test@test.com", "is_active": 1}
 
-    # Override auth to return a fake customer user by default
-    def _fake_user():
-        return {"user_id": "test-user-1", "user_type": "customer"}
-
-    def _fake_rate_limit():
-        return {"user_id": "test-user-1", "user_type": "customer"}
-
-    app.dependency_overrides[get_current_user] = _fake_user
-    app.dependency_overrides[rate_limit_dependency] = _fake_rate_limit
+    app.dependency_overrides[verify_api_key] = _fake_api_key
 
     with TestClient(app) as client:
         yield client
@@ -199,21 +196,14 @@ def test_client(ingested_data) -> TestClient:
 
 @pytest.fixture()
 def customer_client(ingested_data) -> TestClient:
-    """TestClient with customer user type."""
+    """TestClient for customer bot endpoints."""
     from server import app
-    from shared.auth import get_current_user
-    from shared.rate_limiter import rate_limit_dependency, reset_rate_limits
+    from shared.auth import verify_api_key
 
-    reset_rate_limits()
+    async def _fake_api_key():
+        return {"id": 1, "owner_email": "customer@test.com", "is_active": 1}
 
-    def _fake_user():
-        return {"user_id": "test-customer-1", "user_type": "customer"}
-
-    def _fake_rate_limit():
-        return {"user_id": "test-customer-1", "user_type": "customer"}
-
-    app.dependency_overrides[get_current_user] = _fake_user
-    app.dependency_overrides[rate_limit_dependency] = _fake_rate_limit
+    app.dependency_overrides[verify_api_key] = _fake_api_key
 
     with TestClient(app) as client:
         yield client
@@ -223,23 +213,17 @@ def customer_client(ingested_data) -> TestClient:
 
 @pytest.fixture()
 def partner_client(ingested_data) -> TestClient:
-    """TestClient with partner user type."""
+    """TestClient for partner bot endpoints."""
     from server import app
-    from shared.auth import get_current_user
-    from shared.rate_limiter import rate_limit_dependency, reset_rate_limits
+    from shared.auth import verify_api_key
 
-    reset_rate_limits()
+    async def _fake_api_key():
+        return {"id": 1, "owner_email": "partner@test.com", "is_active": 1}
 
-    def _fake_user():
-        return {"user_id": "test-partner-1", "user_type": "partner"}
-
-    def _fake_rate_limit():
-        return {"user_id": "test-partner-1", "user_type": "partner"}
-
-    app.dependency_overrides[get_current_user] = _fake_user
-    app.dependency_overrides[rate_limit_dependency] = _fake_rate_limit
+    app.dependency_overrides[verify_api_key] = _fake_api_key
 
     with TestClient(app) as client:
         yield client
 
     app.dependency_overrides.clear()
+

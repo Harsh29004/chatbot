@@ -6,12 +6,18 @@ Values are loaded from environment variables with sensible defaults.
 """
 
 import os
+from datetime import timezone, timedelta
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Project root (resolved relative to this file)
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# ---------------------------------------------------------------------------
+# Timezone — IST (UTC+5:30)
+# ---------------------------------------------------------------------------
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # ---------------------------------------------------------------------------
 # Retrieval confidence thresholds (tune after seeing real query data)
@@ -24,10 +30,9 @@ NEAR_MATCH_THRESHOLD: float = float(
 )
 
 # ---------------------------------------------------------------------------
-# Ollama embedding configuration
+# Embedding model (sentence-transformers, runs on CPU)
 # ---------------------------------------------------------------------------
-OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "nomic-embed-text")
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
 # ---------------------------------------------------------------------------
 # ChromaDB persistence
@@ -57,14 +62,32 @@ SQLITE_DB_PATH: str = os.getenv(
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
-JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production")
-JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
 ADMIN_API_KEY: str = os.getenv("ADMIN_API_KEY", "admin-change-me")
 
 # ---------------------------------------------------------------------------
-# Rate limiting (per user)
+# Credit system
 # ---------------------------------------------------------------------------
-RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+DAILY_CREDIT_LIMIT: int = int(os.getenv("DAILY_CREDIT_LIMIT", "250"))
+
+# Variable credit cost based on query length (characters)
+# Each tier: (max_chars, credit_cost)
+# e.g. 1-200 chars = 1 credit, 201-500 = 2 credits, etc.
+CREDIT_COST_TIERS: list[tuple[int, int]] = [
+    (200, 1),    # Short queries: 1 credit
+    (500, 2),    # Medium queries: 2 credits
+    (1000, 3),   # Long queries: 3 credits
+    (2000, 5),   # Very long queries: 5 credits
+]
+
+
+def get_credit_cost(message_length: int) -> int:
+    """Return the credit cost for a message of the given character length."""
+    for max_chars, cost in CREDIT_COST_TIERS:
+        if message_length <= max_chars:
+            return cost
+    # Longer than all tiers — use the last tier's cost
+    return CREDIT_COST_TIERS[-1][1]
+
 
 # ---------------------------------------------------------------------------
 # Fixed response templates

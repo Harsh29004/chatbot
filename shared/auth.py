@@ -1,87 +1,98 @@
 """
-JWT authentication and admin API-key verification.
+API-key authentication and admin key verification.
 
-- Chat endpoints require a valid JWT whose ``user_type`` claim matches
-  the bot (``"customer"`` for the customer bot, ``"partner"`` for the
-  partner bot).
-- The admin/reindex endpoint requires a separate admin API key, never
-  the same credential as user auth.
+- Chat endpoints require a valid ``X-Api-Key`` header with sufficient
+  credits.  Each request deducts credits based on message length.
+- Admin endpoints require a separate ``X-Admin-Key`` header.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, Header, HTTPException, status
-from jose import JWTError, jwt
+from fastapi import Header, HTTPException, Request, Response, status
 
-from shared.config import ADMIN_API_KEY, JWT_ALGORITHM, JWT_SECRET
-
-
-def _decode_token(token: str) -> dict[str, Any]:
-    """Decode and verify a JWT, raising 401 on failure."""
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token: {exc}",
-        ) from exc
-    return payload
+from shared.api_keys import (
+    consume_credits,
+    get_credits_remaining,
+    get_next_reset_time,
+    validate_api_key,
+)
+from shared.config import ADMIN_API_KEY, DAILY_CREDIT_LIMIT, get_credit_cost
 
 
-def get_current_user(
-    authorization: str = Header(..., description="Bearer <JWT>"),
+async def verify_api_key(
+    request: Request,
+    response: Response,
+    x_api_key: str = Header(..., alias="X-Api-Key"),
 ) -> dict[str, Any]:
     """
-    FastAPI dependency that extracts and validates the JWT from the
-    ``Authorization`` header.
+    FastAPI dependency that validates an API key and checks credits.
 
-    Returns the decoded payload dict containing at minimum
-    ``user_id`` and ``user_type``.
+    - Validates the key against the database
+    - Calculates credit cost from the request body's message length
+    - Checks if sufficient credits remain
+    - Deducts credits on success
+    - Injects ``X-Credits-Remaining``, ``X-Credits-Daily-Limit``,
+      ``X-Credits-Reset-At``, and ``X-Credit-Cost`` into response headers
+
+    Returns the key record dict on success.
     """
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token:
+    # Validate key
+    key_record = validate_api_key(x_api_key)
+    if key_record is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header must be: Bearer <token>",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or revoked API key.",
         )
-    return _decode_token(token)
 
+    # Calculate credit cost from message length
+    try:
+        body = await request.json()
+        message = body.get("message", "")
+        message_len = len(message)
+    except Exception:
+        message_len = 0
 
-def require_user_type(expected_type: str):
-    """
-    Return a FastAPI dependency that ensures the JWT's ``user_type``
-    matches *expected_type*.
+    credit_cost = get_credit_cost(message_len)
 
-    Usage::
+    # Check credits
+    remaining = get_credits_remaining(key_record["id"])
+    if remaining < credit_cost:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "error": "Insufficient credits",
+                "credits_remaining": remaining,
+                "credit_cost": credit_cost,
+                "resets_at": get_next_reset_time(),
+                "message": (
+                    f"This query costs {credit_cost} credits but you only "
+                    f"have {remaining} remaining. Credits reset at midnight IST."
+                ),
+            },
+        )
 
-        @router.post("/ask")
-        async def ask(
-            body: ChatRequest,
-            user: dict = Depends(require_user_type("customer")),
-        ):
-            ...
-    """
+    # Deduct credits
+    endpoint = request.url.path
+    new_remaining = consume_credits(
+        key_record["id"], credit_cost, endpoint, message_len
+    )
 
-    def _dependency(
-        user: dict[str, Any] = Depends(get_current_user),
-    ) -> dict[str, Any]:
-        if user.get("user_type") != expected_type:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"This endpoint requires user_type='{expected_type}'.",
-            )
-        return user
+    # Set response headers
+    response.headers["X-Credits-Remaining"] = str(new_remaining)
+    response.headers["X-Credits-Daily-Limit"] = str(DAILY_CREDIT_LIMIT)
+    response.headers["X-Credits-Reset-At"] = get_next_reset_time()
+    response.headers["X-Credit-Cost"] = str(credit_cost)
 
-    return _dependency
+    return key_record
 
 
 def verify_admin_key(
     x_admin_key: str = Header(..., alias="X-Admin-Key"),
 ) -> bool:
     """
-    FastAPI dependency for the admin reindex endpoint.
+    FastAPI dependency for admin endpoints.
 
     Expects an ``X-Admin-Key`` header matching the configured
     ``ADMIN_API_KEY``.
@@ -92,3 +103,4 @@ def verify_admin_key(
             detail="Invalid admin API key.",
         )
     return True
+

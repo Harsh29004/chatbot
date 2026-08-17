@@ -1,43 +1,53 @@
 """
-Ollama embedding wrapper.
+Sentence-transformers embedding wrapper.
 
-Calls the local (or VPS-hosted) Ollama HTTP API to produce embeddings.
-No LangChain dependency — raw ``httpx`` for full control and transparency.
+Uses a lightweight CPU-based model (all-MiniLM-L6-v2 by default) to
+produce embeddings.  No Ollama or external service required.
+
+The model is loaded lazily on first call and reused for all subsequent
+requests (singleton pattern).
 """
 
 from __future__ import annotations
 
-import httpx
+import threading
 
-from shared.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from shared.config import EMBEDDING_MODEL
+
+_lock = threading.Lock()
+_model = None
 
 
-def embed_text(text: str, *, model: str | None = None, base_url: str | None = None) -> list[float]:
+def _get_model():
+    """Lazy-load the sentence-transformers model (thread-safe singleton)."""
+    global _model
+    if _model is None:
+        with _lock:
+            if _model is None:  # double-check after acquiring lock
+                from sentence_transformers import SentenceTransformer
+                _model = SentenceTransformer(EMBEDDING_MODEL)
+    return _model
+
+
+def embed_text(text: str) -> list[float]:
     """
-    Embed a single text string via Ollama's ``/api/embeddings`` endpoint.
+    Embed a single text string.
 
     Returns the embedding vector as a list of floats.
     """
-    url = f"{base_url or OLLAMA_BASE_URL}/api/embeddings"
-    payload = {
-        "model": model or OLLAMA_MODEL,
-        "prompt": text,
-    }
-    resp = httpx.post(url, json=payload, timeout=30.0)
-    resp.raise_for_status()
-    return resp.json()["embedding"]
+    model = _get_model()
+    embedding = model.encode(text, convert_to_numpy=True)
+    return embedding.tolist()
 
 
-def embed_batch(
-    texts: list[str],
-    *,
-    model: str | None = None,
-    base_url: str | None = None,
-) -> list[list[float]]:
+def embed_batch(texts: list[str]) -> list[list[float]]:
     """
-    Embed multiple texts sequentially.
+    Embed multiple texts in a single batch (much faster than looping).
 
-    Ollama doesn't natively batch embeddings, so we loop.  For the
-    typical FAQ sheet size (< 200 rows) this completes in seconds.
+    The sentence-transformers library handles batching natively,
+    so this is significantly faster than the old sequential Ollama calls.
     """
-    return [embed_text(t, model=model, base_url=base_url) for t in texts]
+    model = _get_model()
+    embeddings = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+    return embeddings.tolist()
+
