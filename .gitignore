@@ -24,6 +24,3 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
-
-# Archives
-bot.zip
