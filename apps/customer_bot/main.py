@@ -2,8 +2,7 @@
 Customer bot FastAPI router.
 
 Provides ``POST /customer-bot/ask`` — the only user-facing endpoint
-for this bot.  Auth, rate limiting, and the LangGraph flow are composed
-via FastAPI dependencies.
+for this bot.  Authenticated via API key with credit-based billing.
 """
 
 from __future__ import annotations
@@ -11,8 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from apps.customer_bot.graph import build_customer_graph
-from shared.auth import require_user_type
-from shared.rate_limiter import rate_limit_dependency
+from shared.auth import verify_api_key
 from shared.schemas import ChatRequest, ChatResponse
 
 router = APIRouter(prefix="/customer-bot", tags=["Customer Bot"])
@@ -24,11 +22,13 @@ _graph = build_customer_graph()
 @router.post("/ask", response_model=ChatResponse)
 async def ask(
     body: ChatRequest,
-    user: dict = Depends(require_user_type("customer")),
-    _rate: dict = Depends(rate_limit_dependency),
+    _key: dict = Depends(verify_api_key),
 ) -> ChatResponse:
     """
     Answer a customer's question using retrieval-only FAQ matching.
+
+    Requires ``X-Api-Key`` header. Each request costs credits based on
+    message length (see ``GET /api/keys/pricing``).
 
     The response is always one of:
     - **strong**: verbatim FAQ answer (similarity ≥ 0.85)
@@ -47,3 +47,4 @@ async def ask(
         matched_question=result.get("matched_question"),
         confidence=result.get("confidence", 0.0),
     )
+
