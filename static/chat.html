@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#1E2548" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Instant Sahay — Support Chat</title>
+  <meta name="description" content="Instant Sahay FAQ support chatbot. Get quick answers about bookings, payments, accounts, and more." />
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app-container" id="app">
+
+    <!-- ===== Header ===== -->
+    <header class="chat-header">
+      <img src="/static/logo.png" alt="Instant Sahay" class="header-logo" />
+      <div class="header-info">
+        <div class="header-title">Instant Sahay</div>
+        <div class="header-subtitle">
+          <span class="status-dot"></span>
+          <span id="headerStatus">Customer Support Bot</span>
+        </div>
+      </div>
+      <div class="bot-switcher">
+        <button class="bot-btn active" data-bot="customer" id="btnCustomer">Customer</button>
+        <button class="bot-btn" data-bot="partner" id="btnPartner">Partner</button>
+      </div>
+    </header>
+
+    <!-- ===== Chat Messages ===== -->
+    <div class="chat-messages" id="chatMessages">
+
+      <!-- Welcome Card -->
+      <div class="welcome-card" id="welcomeCard">
+        <img src="/static/logo.png" alt="Instant Sahay" class="welcome-logo" />
+        <h1 class="welcome-title">Hi there! 👋</h1>
+        <p class="welcome-text">
+          I'm your Instant Sahay support assistant. Ask me anything about bookings, payments, or your account.
+        </p>
+        <div class="suggestions" id="suggestions">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== Input Area ===== -->
+    <div class="chat-input-area">
+      <div class="input-container">
+        <input
+          type="text"
+          class="chat-input"
+          id="chatInput"
+          placeholder="Type your question…"
+          autocomplete="off"
+          autofocus
+        />
+        <button class="send-btn" id="sendBtn" aria-label="Send message">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
