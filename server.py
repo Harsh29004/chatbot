@@ -11,13 +11,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from apps.api_keys_router import router as keys_router
 from apps.customer_bot.ingest import ingest as customer_ingest
@@ -32,8 +29,6 @@ from shared.schemas import HealthResponse, ReindexResponse
 from shared.vector_store import get_collection
 
 logger = logging.getLogger(__name__)
-
-STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 @asynccontextmanager
@@ -91,11 +86,7 @@ app.add_middleware(
     ],
 )
 
-# ---------------------------------------------------------------------------
-# Static files (CSS, JS, logo)
-# ---------------------------------------------------------------------------
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 
 # ---------------------------------------------------------------------------
 # Mount routers
@@ -105,17 +96,6 @@ app.include_router(customer_router)
 app.include_router(partner_router)
 
 
-# ---------------------------------------------------------------------------
-# Chat UI — serve the mobile test page
-# ---------------------------------------------------------------------------
-
-@app.get("/chat", include_in_schema=False)
-async def chat_page():
-    """Serve the mobile chat HTML page."""
-    html_path = STATIC_DIR / "chat.html"
-    if html_path.exists():
-        return FileResponse(html_path, media_type="text/html")
-    return {"message": "Chat UI not available. Use the API endpoints directly."}
 
 
 # ---------------------------------------------------------------------------
