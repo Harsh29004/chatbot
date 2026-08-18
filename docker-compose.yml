@@ -6,14 +6,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-nomic-embed-text}
-      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
-      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
       - ADMIN_API_KEY=${ADMIN_API_KEY:-admin-change-me}
       - STRONG_MATCH_THRESHOLD=${STRONG_MATCH_THRESHOLD:-0.85}
       - NEAR_MATCH_THRESHOLD=${NEAR_MATCH_THRESHOLD:-0.60}
-      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-30}
       - CHROMA_PERSIST_DIR=/app/data/chroma
       - SQLITE_DB_PATH=/app/data/logs/faq_bot.db
     volumes:
