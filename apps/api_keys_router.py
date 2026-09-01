@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from shared.api_keys import (
     generate_api_key,
+    get_next_reset_time,
     get_usage_stats,
     list_all_keys,
     revoke_key,
@@ -47,6 +48,7 @@ async def create_key(
     result = generate_api_key(
         owner_email=body.owner_email,
         owner_name=body.owner_name,
+        label=body.label,
     )
     return GenerateKeyResponse(**result)
 
@@ -95,7 +97,20 @@ async def check_usage(
             detail="Invalid or revoked API key.",
         )
 
-    stats = get_usage_stats(key_record["id"])
+    if key_record["role"] == "owner":
+        return UsageResponse(
+            is_unlimited=True,
+            credits_remaining=-1,
+            credits_used_today=0,
+            credits_daily_limit=-1,
+            resets_at=get_next_reset_time(),
+            total_queries_all_time=0,
+            total_credits_consumed_all_time=0,
+            last_7_days=[],
+        )
+
+    # Usage is account-level: pooled across every key this owner_email holds.
+    stats = get_usage_stats(key_record["user_id"], key_record["daily_credit_limit"])
     return UsageResponse(**stats)
 
 

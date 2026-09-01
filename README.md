@@ -116,7 +116,7 @@ curl -X POST http://localhost:8000/admin/reindex/customer \
 
 ## Credit System
 
-Each API key gets **250 credits/day** (resets at midnight IST). Credit cost depends on message length:
+Credits are pooled **per account** (identified by `owner_email`), not per key. Each account gets **250 credits/day** (resets at midnight IST) shared across every API key that account holds — creating extra keys does not grant extra credits. Credit cost depends on message length:
 
 | Message Length | Credit Cost |
 |---------------|-------------|
@@ -126,6 +126,16 @@ Each API key gets **250 credits/day** (resets at midnight IST). Credit cost depe
 | 1001-2000 chars | 5 credits |
 
 Credit info is returned in response headers: `X-Credits-Remaining`, `X-Credits-Daily-Limit`, `X-Credits-Reset-At`, `X-Credit-Cost`.
+
+### Owner keys (unlimited, internal use only)
+
+An **owner key** (prefix `iso_`) skips credit checks entirely — no limit, no deduction. It exists only for the project owners themselves and is minted locally, never via an HTTP endpoint:
+
+```bash
+python scripts/create_owner_key.py owner@example.com "Harsh"
+```
+
+Print the raw key once, store it privately, and use it exactly like a normal `X-Api-Key`. Regular customer keys are unaffected — they still go through `POST /api/keys/generate` as before.
 
 ## Testing
 

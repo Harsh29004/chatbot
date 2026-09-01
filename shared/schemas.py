@@ -64,6 +64,11 @@ class GenerateKeyRequest(BaseModel):
     owner_name: str = Field(
         default="", max_length=255, description="Customer's name or company."
     )
+    label: str = Field(
+        default="",
+        max_length=255,
+        description="Optional label for this key (e.g. 'production', 'staging').",
+    )
 
 
 class GenerateKeyResponse(BaseModel):
@@ -76,7 +81,10 @@ class GenerateKeyResponse(BaseModel):
     key_prefix: str = Field(..., description="First 12 chars of the key for display.")
     owner_email: str
     owner_name: str
-    message: str = "Save this key — it won't be shown again!"
+    message: str = (
+        "Save this key — it won't be shown again! Credits are shared across "
+        "every key on this account (identified by owner_email), not per-key."
+    )
 
 
 class KeyInfo(BaseModel):
@@ -84,8 +92,10 @@ class KeyInfo(BaseModel):
 
     id: int
     key_prefix: str
+    label: str
     owner_email: str
     owner_name: str
+    role: str
     created_at: str
     is_active: int
     credits_remaining: int
@@ -106,11 +116,18 @@ class DailyUsageEntry(BaseModel):
 
 
 class UsageResponse(BaseModel):
-    """Customer's credit usage and remaining balance."""
+    """Account's credit usage and remaining balance (pooled across all of the account's keys)."""
 
-    credits_remaining: int
+    is_unlimited: bool = Field(
+        default=False, description="True for owner accounts, which have no credit limit."
+    )
+    credits_remaining: int = Field(
+        ..., description="-1 when is_unlimited is True."
+    )
     credits_used_today: int
-    credits_daily_limit: int
+    credits_daily_limit: int = Field(
+        ..., description="-1 when is_unlimited is True."
+    )
     resets_at: str = Field(..., description="Next credit reset time (midnight IST).")
     total_queries_all_time: int
     total_credits_consumed_all_time: int
