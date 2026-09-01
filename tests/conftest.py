@@ -184,7 +184,15 @@ def test_client(ingested_data) -> TestClient:
 
     # Override API key auth to return a fake key record
     async def _fake_api_key():
-        return {"id": 1, "owner_email": "test@test.com", "is_active": 1}
+        return {
+            "id": 1,
+            "user_id": 1,
+            "owner_email": "test@test.com",
+            "role": "user",
+            "daily_credit_limit": None,
+            "key_is_active": 1,
+            "user_is_active": 1,
+        }
 
     app.dependency_overrides[verify_api_key] = _fake_api_key
 
@@ -201,7 +209,15 @@ def customer_client(ingested_data) -> TestClient:
     from shared.auth import verify_api_key
 
     async def _fake_api_key():
-        return {"id": 1, "owner_email": "customer@test.com", "is_active": 1}
+        return {
+            "id": 1,
+            "user_id": 1,
+            "owner_email": "customer@test.com",
+            "role": "user",
+            "daily_credit_limit": None,
+            "key_is_active": 1,
+            "user_is_active": 1,
+        }
 
     app.dependency_overrides[verify_api_key] = _fake_api_key
 
@@ -218,7 +234,15 @@ def partner_client(ingested_data) -> TestClient:
     from shared.auth import verify_api_key
 
     async def _fake_api_key():
-        return {"id": 1, "owner_email": "partner@test.com", "is_active": 1}
+        return {
+            "id": 1,
+            "user_id": 1,
+            "owner_email": "partner@test.com",
+            "role": "user",
+            "daily_credit_limit": None,
+            "key_is_active": 1,
+            "user_is_active": 1,
+        }
 
     app.dependency_overrides[verify_api_key] = _fake_api_key
 
