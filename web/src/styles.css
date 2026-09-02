@@ -905,6 +905,306 @@ pre,
 }
 
 /* --------------------------------------------------------------------------
+   Chips
+   -------------------------------------------------------------------------- */
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+.chip {
+  padding: 6px 12px;
+  border-radius: 100px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.chip:hover {
+  color: var(--bone);
+  border-color: var(--line-bright);
+}
+
+.chip[data-active="true"] {
+  background: var(--accent-wash);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.chip-static {
+  cursor: default;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.chip-static:hover {
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+/* --------------------------------------------------------------------------
+   Template picker
+   -------------------------------------------------------------------------- */
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: var(--s4);
+  margin-top: var(--s5);
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--s5);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.template-card:hover {
+  border-color: var(--line-bright);
+  transform: translateY(-2px);
+}
+
+.template-card[data-selected="true"] {
+  border-color: var(--accent-dim);
+  background: linear-gradient(180deg, var(--accent-wash), transparent 40%),
+    var(--surface);
+}
+
+.template-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  margin-bottom: var(--s4);
+}
+
+.template-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.template-name {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.template-head .badge {
+  margin-left: auto;
+}
+
+.template-desc {
+  margin-bottom: var(--s4);
+}
+
+.template-meta {
+  margin: 0 0 var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+
+.template-meta dt {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.template-meta dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.template-decline {
+  color: var(--faint);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.template-expand {
+  padding: var(--s4) 0;
+  border-top: 1px solid var(--line);
+  margin-bottom: var(--s3);
+}
+
+.sample-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.sample-list li {
+  font-size: 13px;
+  color: var(--muted);
+  padding-left: var(--s4);
+  position: relative;
+}
+
+.sample-list li::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+
+.template-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-top: auto;
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+/* --------------------------------------------------------------------------
+   Sheet upload
+   -------------------------------------------------------------------------- */
+
+.dropzone {
+  border: 1.5px dashed var(--line-bright);
+  border-radius: var(--radius-lg);
+  padding: var(--s7) var(--s5);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+  background: var(--surface-2);
+}
+
+.dropzone:hover,
+.dropzone[data-dragging="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.dropzone-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto var(--s4);
+  border-radius: 50%;
+  border: 1px solid var(--line-bright);
+  color: var(--accent);
+  font-size: 18px;
+}
+
+.warning-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Answer preview
+   -------------------------------------------------------------------------- */
+
+.answer-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-bright);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: var(--s4);
+}
+
+.answer-card[data-mode="strong"] {
+  border-left-color: var(--mint);
+}
+
+.answer-card[data-mode="near"] {
+  border-left-color: var(--amber);
+}
+
+.answer-card[data-mode="decline"] {
+  border-left-color: var(--faint);
+}
+
+.badge[data-mode="strong"] {
+  color: var(--mint);
+  border-color: rgba(125, 211, 192, 0.4);
+}
+
+.badge[data-mode="near"] {
+  color: var(--amber);
+  border-color: rgba(232, 184, 75, 0.4);
+}
+
+.badge[data-mode="decline"] {
+  color: var(--faint);
+}
+
+/* --------------------------------------------------------------------------
+   Setup steps
+   -------------------------------------------------------------------------- */
+
+.setup-step {
+  display: flex;
+  gap: var(--s4);
+  padding: var(--s5) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.setup-step:last-child {
+  border-bottom: 0;
+}
+
+.setup-badge {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border: 1px solid var(--line-bright);
+  color: var(--muted);
+}
+
+.setup-step[data-done="true"] .setup-badge {
+  background: var(--mint);
+  border-color: var(--mint);
+  color: #0a0b0d;
+}
+
+.setup-step[data-active="true"] .setup-badge {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.setup-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------------------
    FAQ
    -------------------------------------------------------------------------- */
 

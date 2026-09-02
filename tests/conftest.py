@@ -129,10 +129,11 @@ def _mock_embeddings(monkeypatch):
     """
     monkeypatch.setattr("shared.embeddings.embed_text", _mock_embed_text)
     monkeypatch.setattr("shared.embeddings.embed_batch", _mock_embed_batch)
-    # Patch consuming modules that import directly
-    monkeypatch.setattr("apps.customer_bot.graph.embed_text", _mock_embed_text)
+    # Patch consuming modules that import directly. Both built-in bots now run
+    # on the shared engine, so that is the single query-side patch point.
+    monkeypatch.setattr("apps.bot_engine.graph.embed_text", _mock_embed_text)
+    monkeypatch.setattr("apps.bot_engine.ingest.embed_batch", _mock_embed_batch)
     monkeypatch.setattr("apps.customer_bot.ingest.embed_batch", _mock_embed_batch)
-    monkeypatch.setattr("apps.partner_bot.graph.embed_text", _mock_embed_text)
     monkeypatch.setattr("apps.partner_bot.ingest.embed_batch", _mock_embed_batch)
 
 

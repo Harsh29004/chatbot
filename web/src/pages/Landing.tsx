@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { CodeBlock, Page } from "../components/Chrome";
 import { PricingSection } from "../components/Pricing";
+import { TemplatePicker } from "../components/TemplatePicker";
 
 // three.js is ~600kb. It should never block the headline from rendering.
 const HeroScene = lazy(() => import("../three/HeroScene"));
@@ -131,6 +132,24 @@ export function Landing() {
                 <p className="small mt-3">{step.body}</p>
               </article>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------------- */}
+      <section className="section" id="templates">
+        <div className="wrap">
+          <p className="eyebrow eyebrow-muted">Templates</p>
+          <h2 className="h-section">Ten bots. Pick the one you already are.</h2>
+          <p className="lede mt-4">
+            A template decides what your bot is allowed to talk about and the
+            exact words it uses to refuse everything else. Your sheet fills in
+            the facts. Healthcare and finance templates are deliberately
+            stricter — they stay quiet unless the match is close.
+          </p>
+
+          <div className="mt-6">
+            <TemplatePicker readOnly />
           </div>
         </div>
       </section>

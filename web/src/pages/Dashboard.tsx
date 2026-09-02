@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { BotTester, SheetUploader } from "../components/BotSetup";
 import { CodeBlock, Page } from "../components/Chrome";
 import { PricingSection } from "../components/Pricing";
-import { api, type CreatedKey, type Dashboard as DashboardData } from "../lib/api";
+import { TemplatePicker } from "../components/TemplatePicker";
+import {
+  api,
+  type Bot,
+  type CreatedKey,
+  type Dashboard as DashboardData,
+} from "../lib/api";
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -44,11 +51,14 @@ function StatusBadge({ status, entitled }: { status: string; entitled: boolean }
 
 export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [bot, setBot] = useState<Bot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newKey, setNewKey] = useState<CreatedKey | null>(null);
   const [label, setLabel] = useState("");
   const [creating, setCreating] = useState(false);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
+  const [busyTemplate, setBusyTemplate] = useState<string | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [copied, setCopied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -60,9 +70,36 @@ export function Dashboard() {
     }
   }, []);
 
+  const loadBot = useCallback(async () => {
+    try {
+      setBot(await api.bot());
+    } catch {
+      // A bot only exists once the account has an API identity; the setup
+      // card handles that case, so a failure here is not worth shouting about.
+      setBot(null);
+    }
+  }, []);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadBot();
+  }, [loadBot, data?.keys.length]);
+
+  const chooseTemplate = async (templateId: string) => {
+    setBusyTemplate(templateId);
+    setError(null);
+    try {
+      setBot(await api.selectTemplate(templateId));
+      setShowTemplates(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyTemplate(null);
+    }
+  };
 
   const createKey = async () => {
     setCreating(true);
@@ -211,7 +248,7 @@ export function Dashboard() {
                 title="curl"
                 code={[
                   [{ text: "curl -X POST \\" }],
-                  [{ text: "  http://localhost:8000/customer-bot/ask \\" }],
+                  [{ text: "  http://localhost:8000/v1/ask \\" }],
                   [
                     { text: "  -H " },
                     {
@@ -239,6 +276,130 @@ export function Dashboard() {
               </p>
             </section>
           </div>
+
+          {/* Bot setup ------------------------------------------------- */}
+          <section className="card mb-5">
+            <div className="row row-between mb-4" style={{ flexWrap: "wrap" }}>
+              <div>
+                <h2 className="h-card">Your bot</h2>
+                <p className="tiny mt-3">
+                  A template sets what your bot is allowed to talk about. Your
+                  sheet supplies the answers. Anything outside both gets refused.
+                </p>
+              </div>
+              {bot?.template && (
+                <span className="badge">
+                  {bot.template.icon} {bot.template.name}
+                </span>
+              )}
+            </div>
+
+            {/* Step 1 — template */}
+            <div className="setup-step" data-done={!!bot} data-active={!bot}>
+              <span className="setup-badge">{bot ? "✓" : "1"}</span>
+              <div className="setup-body">
+                <div className="row row-between" style={{ flexWrap: "wrap" }}>
+                  <div>
+                    <h3 className="h-card">Choose a template</h3>
+                    <p className="small mt-3">
+                      {bot?.template
+                        ? `Answers about ${bot.template.scope_label}.`
+                        : "Ten ready-made bots, one for each kind of business."}
+                    </p>
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setShowTemplates((v) => !v)}
+                  >
+                    {showTemplates ? "Close" : bot?.template ? "Change" : "Browse templates"}
+                  </button>
+                </div>
+
+                {bot?.template && !showTemplates && (
+                  <p className="tiny mt-3 template-decline">
+                    Refuses with: “{bot.template.decline_message}”
+                  </p>
+                )}
+
+                {showTemplates && (
+                  <div className="mt-5">
+                    <TemplatePicker
+                      selectedId={bot?.template_id}
+                      busyId={busyTemplate}
+                      onSelect={(t) => void chooseTemplate(t.id)}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Step 2 — sheet */}
+            <div
+              className="setup-step"
+              data-done={bot?.status === "ready"}
+              data-active={!!bot && bot.status !== "ready"}
+            >
+              <span className="setup-badge">
+                {bot?.status === "ready" ? "✓" : "2"}
+              </span>
+              <div className="setup-body">
+                <h3 className="h-card">Upload your FAQ sheet</h3>
+                {bot?.status === "ready" ? (
+                  <>
+                    <p className="small mt-3">
+                      {bot.doc_count} question{bot.doc_count === 1 ? "" : "s"} indexed
+                      from <code className="mono">{bot.sheet_filename}</code>.
+                      {bot.categories.length > 0 &&
+                        ` Categories: ${bot.categories.join(", ")}.`}
+                    </p>
+                    <details className="mt-4">
+                      <summary className="small" style={{ cursor: "pointer" }}>
+                        Replace the sheet
+                      </summary>
+                      <div className="mt-4">
+                        <SheetUploader bot={bot} onUploaded={(r) => setBot(r.bot)} />
+                      </div>
+                    </details>
+                  </>
+                ) : bot ? (
+                  <div className="mt-4">
+                    <SheetUploader bot={bot} onUploaded={(r) => setBot(r.bot)} />
+                  </div>
+                ) : (
+                  <p className="small mt-3">Pick a template first.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Step 3 — key */}
+            <div
+              className="setup-step"
+              data-done={activeKeys.length > 0}
+              data-active={bot?.status === "ready" && activeKeys.length === 0}
+            >
+              <span className="setup-badge">
+                {activeKeys.length > 0 ? "✓" : "3"}
+              </span>
+              <div className="setup-body">
+                <h3 className="h-card">Create an API key</h3>
+                <p className="small mt-3">
+                  {activeKeys.length > 0
+                    ? `${activeKeys.length} active key${
+                        activeKeys.length === 1 ? "" : "s"
+                      }. Point your app at POST /v1/ask with the key in X-Api-Key.`
+                    : "Create one below, then call POST /v1/ask with it."}
+                </p>
+              </div>
+            </div>
+
+            {/* Tester */}
+            {bot?.status === "ready" && (
+              <div className="mt-5" style={{ paddingTop: "var(--s5)", borderTop: "1px solid var(--line)" }}>
+                <h3 className="h-card mb-4">Try it</h3>
+                <BotTester bot={bot} />
+              </div>
+            )}
+          </section>
 
           {/* Keys ------------------------------------------------------ */}
           <section className="card card-flush mb-5">

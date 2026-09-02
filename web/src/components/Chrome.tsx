@@ -40,6 +40,9 @@ export function Nav() {
           <Link to="/#how" className="nav-link nav-link-hide">
             How it works
           </Link>
+          <Link to="/#templates" className="nav-link nav-link-hide">
+            Templates
+          </Link>
           <Link to="/#pricing" className="nav-link nav-link-hide">
             Pricing
           </Link>

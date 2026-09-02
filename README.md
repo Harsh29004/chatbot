@@ -137,6 +137,75 @@ python scripts/create_owner_key.py owner@example.com "Harsh"
 
 Print the raw key once, store it privately, and use it exactly like a normal `X-Api-Key`. Regular customer keys are unaffected — they still go through `POST /api/keys/generate` as before.
 
+## Templates
+
+A customer does two things: pick a template and upload their sheet.
+
+- **The template** decides what the bot is *allowed* to talk about, and the exact
+  words it uses to refuse everything else.
+- **The sheet** supplies the facts. Nothing else does — there is no generation
+  step, so the bot cannot answer with anything the customer didn't write.
+
+Anything outside both gets the template's decline message.
+
+| # | Template | Covers | Strictness |
+|---|----------|--------|------------|
+| 1 | 🛍️ E-commerce Support | Orders, delivery, returns, refunds | open |
+| 2 | 🍽️ Restaurant & Food Delivery | Menu, timings, delivery areas, bookings | open |
+| 3 | 🩺 Clinic & Healthcare | Timings, appointments, fees, insurance | **strict** |
+| 4 | 🏢 Real Estate & Property | Listings, site visits, payment plans | balanced |
+| 5 | 🎓 Coaching & EdTech | Courses, fees, batches, admissions | open |
+| 6 | 💻 SaaS & App Support | Features, billing, integrations | open |
+| 7 | ✈️ Travel & Hotel Booking | Bookings, check-in, cancellation | open |
+| 8 | 🏦 Banking & Fintech | Charges, KYC, limits, statements | **strict** |
+| 9 | 📦 Logistics & Courier | Tracking, delivery, claims | open |
+| 10 | 💇 Salon, Spa & Local Services | Services, prices, timings | open |
+
+Thresholds are not uniform. A wrong answer about a haircut costs an apology; a
+wrong answer about a drug interaction or a loan penalty costs considerably
+more, so the healthcare and finance templates demand a closer match before
+they speak (0.90 vs 0.84) and fall silent sooner. They also refuse
+vertical-specific requests outright — the clinic bot explains how to book an
+appointment but will never appear to book one, and the fintech bot won't be
+drawn into "which fund should I pick".
+
+### The sheet
+
+Only **Question** and **Answer** are required. `Alt_Phrasings` (semicolon
+separated) and `Category` are optional and improve matching. Every template
+ships a pre-filled starter CSV — `GET /api/templates/{id}/starter-sheet`, or
+the download button in the dashboard.
+
+Each phrasing is indexed as its own vector rather than concatenated into one,
+so asking a sheet question word-for-word scores ~1.00 instead of ~0.76.
+Re-uploading **replaces** the index — the sheet is the source of truth, so a
+re-upload has to be able to remove an answer.
+
+### Bot endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/templates` | — | The ten templates |
+| `GET` | `/api/templates/{id}/starter-sheet` | — | Pre-filled CSV |
+| `GET` | `/api/bot` | cookie | This account's bot |
+| `PUT` | `/api/bot` | cookie | Pick or switch template |
+| `POST` | `/api/bot/sheet` | cookie | Upload the FAQ sheet |
+| `POST` | `/api/bot/preview` | cookie | Test a question (free) |
+| `POST` | `/v1/ask` | `X-Api-Key` | **Ask the bot** — the endpoint customers integrate |
+
+```bash
+curl -X POST http://localhost:8000/v1/ask \
+  -H "X-Api-Key: isk_xxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What are your delivery charges?", "session_id": "u_1"}'
+
+{"response": "Delivery is free on orders above Rs 499...",
+ "mode": "strong", "matched_question": "What are your delivery charges?",
+ "confidence": 1.0}
+```
+
+Switching template keeps the indexed sheet — scope and facts are independent.
+
 ## The platform (web app + billing)
 
 `web/` is the customer-facing product: a marketing site with a 3D hero, plus a
@@ -217,7 +286,7 @@ real domain, and verify webhook signatures in `POST /api/billing/webhook`
 pytest tests/ -v
 ```
 
-127 tests covering: known questions, near-match phrasing, out-of-scope rejection, injection payloads, action-intent blocking, pricing maths, entitlement, credit pooling, and key-ownership scoping.
+209 tests covering: known questions, near-match phrasing, out-of-scope rejection, injection payloads, action-intent blocking, pricing maths, entitlement, credit pooling, key-ownership scoping, the template catalogue, sheet ingestion, and per-template scope enforcement.
 
 ## Configuration
 

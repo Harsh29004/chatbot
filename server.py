@@ -20,6 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from apps.api_keys_router import router as keys_router
 from apps.billing.db import expire_lapsed_subscriptions, init_billing_tables
 from apps.billing.router import router as platform_router
+from apps.bot_engine.store import init_bot_tables
+from apps.bots_router import router as bots_router
 from apps.customer_bot.ingest import ingest as customer_ingest
 from apps.customer_bot.main import router as customer_router
 from apps.partner_bot.ingest import ingest as partner_ingest
@@ -46,6 +48,7 @@ async def lifespan(app: FastAPI):
     init_db()
     init_api_key_tables()
     init_billing_tables()
+    init_bot_tables()
     logger.info("Database tables initialised.")
 
     lapsed = expire_lapsed_subscriptions()
@@ -113,6 +116,7 @@ app.add_middleware(
 # Mount routers
 # ---------------------------------------------------------------------------
 app.include_router(platform_router)
+app.include_router(bots_router)
 app.include_router(keys_router)
 app.include_router(customer_router)
 app.include_router(partner_router)

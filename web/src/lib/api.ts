@@ -39,10 +39,13 @@ async function request<T>(
 ): Promise<T> {
   let response: Response;
   try {
+    // FormData must set its own Content-Type — it carries the multipart
+    // boundary, and overriding it makes the upload unparseable server-side.
+    const isFormData = options.body instanceof FormData;
     response = await fetch(`/api${path}`, {
       credentials: "include",
       headers:
-        options.body !== undefined
+        options.body !== undefined && !isFormData
           ? { "Content-Type": "application/json", ...options.headers }
           : options.headers,
       ...options,
@@ -154,6 +157,51 @@ export interface Checkout {
   message: string;
 }
 
+export interface BotTemplate {
+  id: string;
+  name: string;
+  category: string;
+  icon: string;
+  tagline: string;
+  description: string;
+  scope_label: string;
+  decline_message: string;
+  sample_questions: string[];
+  starter_categories: string[];
+  strong_threshold: number;
+  near_threshold: number;
+  strictness: "strict" | "balanced" | "open";
+}
+
+export interface Bot {
+  id: number;
+  name: string;
+  template_id: string;
+  template: BotTemplate | null;
+  status: "draft" | "ready";
+  doc_count: number;
+  sheet_filename: string;
+  sheet_uploaded_at: string | null;
+  categories: string[];
+  required_columns: string[];
+  optional_columns: string[];
+}
+
+export interface SheetUpload {
+  documents_indexed: number;
+  skipped_rows: number;
+  warnings: string[];
+  categories: string[];
+  bot: Bot;
+}
+
+export interface Answer {
+  response: string;
+  mode: "strong" | "near" | "decline";
+  matched_question: string | null;
+  confidence: number;
+}
+
 // ---------------------------------------------------------------------------
 // Endpoints
 // ---------------------------------------------------------------------------
@@ -184,4 +232,29 @@ export const api = {
   confirmManual: () => post<Subscription>("/billing/confirm"),
 
   cancel: () => post<Subscription>("/billing/cancel"),
+
+  // --- templates & bot ---
+
+  templates: () => request<BotTemplate[]>("/templates"),
+
+  starterSheetUrl: (templateId: string) =>
+    `/api/templates/${templateId}/starter-sheet`,
+
+  bot: () => request<Bot>("/bot"),
+
+  selectTemplate: (templateId: string, name = "") =>
+    request<Bot>("/bot", {
+      method: "PUT",
+      body: JSON.stringify({ template_id: templateId, name }),
+    }),
+
+  /** Multipart upload — no Content-Type header, the browser sets the boundary. */
+  uploadSheet: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<SheetUpload>("/bot/sheet", { method: "POST", body: form });
+  },
+
+  preview: (message: string) =>
+    post<Answer>("/bot/preview", { message, session_id: "dashboard-preview" }),
 };
