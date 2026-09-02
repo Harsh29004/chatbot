@@ -10,6 +10,7 @@ Run with:  ``uvicorn server:app --host 0.0.0.0 --port 8000``
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -17,6 +18,8 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api_keys_router import router as keys_router
+from apps.billing.db import expire_lapsed_subscriptions, init_billing_tables
+from apps.billing.router import router as platform_router
 from apps.customer_bot.ingest import ingest as customer_ingest
 from apps.customer_bot.main import router as customer_router
 from apps.partner_bot.ingest import ingest as partner_ingest
@@ -35,13 +38,19 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Startup tasks:
-    1. Initialise SQLite tables (logging + API keys)
-    2. Auto-ingest FAQ data into ChromaDB
+    1. Initialise SQLite tables (logging + API keys + billing)
+    2. Retire any subscriptions that lapsed while the server was down
+    3. Auto-ingest FAQ data into ChromaDB
     """
     # Initialise databases
     init_db()
     init_api_key_tables()
+    init_billing_tables()
     logger.info("Database tables initialised.")
+
+    lapsed = expire_lapsed_subscriptions()
+    if lapsed:
+        logger.info("Expired %d lapsed subscription(s) on startup.", lapsed)
 
     # Auto-ingest FAQ data (idempotent — rebuilds collections)
     try:
@@ -71,11 +80,23 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# CORS — allow requests from your frontend
+# CORS
 # ---------------------------------------------------------------------------
+# The dashboard authenticates with a session cookie, and browsers refuse to
+# send credentials to a wildcard origin — so the web origins are listed
+# explicitly. Set WEB_ORIGINS (comma-separated) in production.
+WEB_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "WEB_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=WEB_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=[
@@ -91,6 +112,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Mount routers
 # ---------------------------------------------------------------------------
+app.include_router(platform_router)
 app.include_router(keys_router)
 app.include_router(customer_router)
 app.include_router(partner_router)

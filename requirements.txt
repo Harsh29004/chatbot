@@ -6,9 +6,15 @@ langchain-core>=0.3.0
 pandas>=2.2.0
 openpyxl>=3.1.0
 pydantic>=2.7.0
+email-validator>=2.1.0
+python-dotenv>=1.0.0
 sentence-transformers>=3.0.0
+
+# langgraph-sdk imports websockets.asyncio (added in 13) and caps at <16
+websockets>=14,<16
 
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
-httpx>=0.27.0
+# httpx 0.28 removed the TestClient `app=` shortcut that starlette still uses
+httpx>=0.27.0,<0.28

@@ -17,6 +17,11 @@ chroma_data/
 # SQLite logs
 logs/
 
+# Web app
+web/node_modules/
+web/dist/
+web/.vite/
+
 # IDE
 .vscode/
 .idea/
@@ -24,3 +29,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# TS build cache
+web/*.tsbuildinfo

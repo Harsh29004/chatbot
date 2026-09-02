@@ -15,6 +15,20 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------------------
+# .env loading
+# ---------------------------------------------------------------------------
+# Without this every os.getenv below silently falls back to its default, so a
+# deployment that carefully set ADMIN_API_KEY in .env would still be running
+# on the published default. Real environment variables win over the file, so
+# container/systemd config still overrides it.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(PROJECT_ROOT / ".env", override=False)
+except ImportError:  # pragma: no cover - dotenv is an optional convenience
+    pass
+
+# ---------------------------------------------------------------------------
 # Timezone — IST (UTC+5:30)
 # ---------------------------------------------------------------------------
 IST = timezone(timedelta(hours=5, minutes=30))

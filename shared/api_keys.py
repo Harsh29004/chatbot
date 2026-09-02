@@ -458,3 +458,82 @@ def revoke_key(key_id: int) -> bool:
     )
     conn.commit()
     return cursor.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Account-scoped operations (used by the self-serve billing dashboard)
+# ---------------------------------------------------------------------------
+
+def get_user_by_email(email: str) -> dict[str, Any] | None:
+    """Return the account row for *email*, or None if it doesn't exist yet."""
+    row = _get_conn().execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    return dict(row) if row else None
+
+
+def set_daily_credit_limit(email: str, limit: int | None, name: str = "") -> dict[str, Any]:
+    """
+    Set an account's daily credit allowance, creating the account if needed.
+
+    This is how a subscription tier becomes an entitlement: activate a plan,
+    write its ``daily_credits`` here. ``None`` restores the global default.
+    """
+    user = _get_or_create_user(email, name, role=ROLE_USER)
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE users SET daily_credit_limit = ? WHERE id = ?",
+        (limit, user["id"]),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone())
+
+
+def list_keys_for_email(email: str) -> list[dict[str, Any]]:
+    """List the API keys belonging to one account (never exposes the hash)."""
+    rows = _get_conn().execute(
+        """
+        SELECT
+            api_keys.id         AS id,
+            api_keys.key_prefix AS key_prefix,
+            api_keys.label      AS label,
+            api_keys.created_at AS created_at,
+            api_keys.is_active  AS is_active
+        FROM api_keys
+        JOIN users ON users.id = api_keys.user_id
+        WHERE users.email = ?
+        ORDER BY api_keys.id DESC
+        """,
+        (email,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def revoke_key_for_email(key_id: int, email: str) -> bool:
+    """
+    Revoke a key **only if** it belongs to *email*.
+
+    Scoping the UPDATE by owner (rather than checking then updating) is what
+    stops one customer revoking another's key by guessing an id.
+    """
+    conn = _get_conn()
+    cursor = conn.execute(
+        """
+        UPDATE api_keys SET is_active = 0
+        WHERE id = ?
+          AND user_id = (SELECT id FROM users WHERE email = ?)
+        """,
+        (key_id, email),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def count_active_keys_for_email(email: str) -> int:
+    row = _get_conn().execute(
+        """
+        SELECT COUNT(*) AS n FROM api_keys
+        JOIN users ON users.id = api_keys.user_id
+        WHERE users.email = ? AND api_keys.is_active = 1
+        """,
+        (email,),
+    ).fetchone()
+    return row["n"]
