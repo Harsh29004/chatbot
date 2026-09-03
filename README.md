@@ -1,4 +1,4 @@
-# Nexora
+# Nexora AI
 
 Retrieval-grounded FAQ chatbots, sold as a service.
 

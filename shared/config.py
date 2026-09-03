@@ -1,5 +1,5 @@
 """
-Configuration constants for Nexora.
+Configuration constants for Nexora AI.
 
 All tunable thresholds and environment-dependent settings live here.
 Values are loaded from environment variables with sensible defaults.

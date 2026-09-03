@@ -1,5 +1,5 @@
 """
-Nexora — main FastAPI application.
+Nexora AI — main FastAPI application.
 
 Mounts the platform API (accounts, billing, dashboard), the bot API
 (templates, sheet upload, ``/v1/ask``), API-key management, and a health
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Nexora",
+    title="Nexora AI",
     description=(
         "Retrieval-grounded FAQ chatbots, sold as a service. Customers pick a "
         "template, upload their FAQ sheet, and get an API key. Answers come "

@@ -5,11 +5,11 @@ import { useAuth } from "../lib/auth";
 
 export function Logo() {
   return (
-    <Link to="/" className="logo" aria-label="Nexora home">
+    <Link to="/" className="logo" aria-label="Nexora AI home">
       <span className="logo-mark" aria-hidden="true">
         N
       </span>
-      Nexora
+      Nexora AI
     </Link>
   );
 }

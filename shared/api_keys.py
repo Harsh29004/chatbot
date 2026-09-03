@@ -34,8 +34,8 @@ from shared import config
 
 _LOCAL = threading.local()
 
-KEY_PREFIX = "nxk_"  # Nexora Key
-OWNER_KEY_PREFIX = "nxo_"  # Nexora Owner key — visually distinct in logs
+KEY_PREFIX = "nxk_"  # Nexora AI Key
+OWNER_KEY_PREFIX = "nxo_"  # Nexora AI Owner key — visually distinct in logs
 
 ROLE_USER = "user"
 ROLE_OWNER = "owner"
