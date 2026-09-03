@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from apps.billing import db, plans
+from apps.billing import db, entitlements, plans
 from apps.billing.security import (
     generate_session_token,
     hash_password,
@@ -136,25 +136,135 @@ def test_cancelled_plan_still_entitles_until_period_end():
     assert db.is_entitled(db.get_current_subscription(customer["id"]))
 
 
-def test_lapsed_subscription_is_expired_and_stops_entitling():
+def _lapse(subscription_id: int) -> None:
+    """Rewind a subscription's period end so it counts as lapsed."""
     from datetime import datetime, timedelta
 
     from shared import config
 
-    customer = _customer("lapsed@example.com")
-    sub = db.start_subscription(customer["id"], plans.PLANS["monthly"], db.STATUS_ACTIVE)
-
     past = (datetime.now(config.IST) - timedelta(days=1)).isoformat()
     conn = db._get_conn()
     conn.execute(
-        "UPDATE subscriptions SET current_period_end = ? WHERE id = ?", (past, sub["id"])
+        "UPDATE subscriptions SET current_period_end = ? WHERE id = ?",
+        (past, subscription_id),
     )
     conn.commit()
 
-    assert db.expire_lapsed_subscriptions() >= 1
+
+def test_lapsed_subscription_is_expired_and_stops_entitling():
+    customer = _customer("lapsed@example.com")
+    sub = db.start_subscription(customer["id"], plans.PLANS["monthly"], db.STATUS_ACTIVE)
+    _lapse(sub["id"])
+
+    lapsed = db.expire_lapsed_subscriptions()
+    assert len(lapsed) == 1
+    assert lapsed[0]["email"] == "lapsed@example.com"
+
     current = db.get_current_subscription(customer["id"])
     assert current["status"] == db.STATUS_EXPIRED
     assert not db.is_entitled(current)
+
+
+def test_expiry_returns_the_customer_so_their_allowance_can_be_withdrawn():
+    """The sweep has to name who lapsed, or nothing can act on it."""
+    customer = _customer("named@example.com", "Named Co")
+    sub = db.start_subscription(customer["id"], plans.PLANS["monthly"], db.STATUS_ACTIVE)
+    _lapse(sub["id"])
+
+    lapsed = db.expire_lapsed_subscriptions()
+    assert lapsed[0]["id"] == customer["id"]
+    assert lapsed[0]["name"] == "Named Co"
+
+
+def test_nothing_lapsed_returns_nothing():
+    customer = _customer("current@example.com")
+    db.start_subscription(customer["id"], plans.PLANS["monthly"], db.STATUS_ACTIVE)
+    assert db.expire_lapsed_subscriptions() == []
+
+
+# ---------------------------------------------------------------------------
+# Entitlement withdrawal — paying for it is what buys the allowance
+# ---------------------------------------------------------------------------
+
+def test_a_lapsed_plan_loses_its_paid_allowance():
+    """
+    Regression guard for a revenue hole: the first version granted the paid
+    allowance on activation and never took it back, so a cancelled customer
+    kept 5,000 credits/day and a working key indefinitely.
+    """
+    email = "lapse-credits@example.com"
+    customer = _customer(email, "Lapser")
+    sub = db.start_subscription(customer["id"], plans.PLANS["yearly"], db.STATUS_ACTIVE)
+    entitlements.grant(email, "Lapser", plans.PLANS["yearly"].daily_credits)
+
+    assert ak.get_user_by_email(email)["daily_credit_limit"] == plans.PAID_DAILY_CREDITS
+
+    _lapse(sub["id"])
+    assert entitlements.sync() == 1
+
+    # Back on the free default, not still on the paid tier.
+    assert ak.get_user_by_email(email)["daily_credit_limit"] is None
+
+
+def test_a_lapsed_customer_keeps_their_key_but_on_the_free_allowance():
+    """
+    Withdrawal throttles; it does not break their integration. Someone whose
+    card expired should find their bot rate-limited, not returning 403 to
+    their users.
+    """
+    from shared.config import DAILY_CREDIT_LIMIT
+
+    email = "throttled@example.com"
+    customer = _customer(email, "Throttled")
+    sub = db.start_subscription(customer["id"], plans.PLANS["monthly"], db.STATUS_ACTIVE)
+    entitlements.grant(email, "Throttled", plans.PLANS["monthly"].daily_credits)
+    key = ak.generate_api_key(email, "Throttled")
+
+    _lapse(sub["id"])
+    entitlements.sync()
+
+    record = ak.validate_api_key(key["api_key"])
+    assert record is not None, "the key should still authenticate"
+    assert ak.get_credits_remaining(record["user_id"], record["daily_credit_limit"]) == (
+        DAILY_CREDIT_LIMIT
+    )
+
+
+def test_sync_is_idempotent():
+    email = "idempotent@example.com"
+    customer = _customer(email)
+    sub = db.start_subscription(customer["id"], plans.PLANS["monthly"], db.STATUS_ACTIVE)
+    entitlements.grant(email, "", plans.PLANS["monthly"].daily_credits)
+    _lapse(sub["id"])
+
+    assert entitlements.sync() == 1
+    assert entitlements.sync() == 0, "a second sweep must not re-withdraw"
+
+
+def test_resubscribing_restores_the_paid_allowance():
+    email = "returning@example.com"
+    customer = _customer(email, "Returning")
+    sub = db.start_subscription(customer["id"], plans.PLANS["monthly"], db.STATUS_ACTIVE)
+    entitlements.grant(email, "Returning", plans.PLANS["monthly"].daily_credits)
+
+    _lapse(sub["id"])
+    entitlements.sync()
+    assert ak.get_user_by_email(email)["daily_credit_limit"] is None
+
+    db.start_subscription(customer["id"], plans.PLANS["yearly"], db.STATUS_ACTIVE)
+    entitlements.grant(email, "Returning", plans.PLANS["yearly"].daily_credits)
+
+    assert ak.get_user_by_email(email)["daily_credit_limit"] == plans.PAID_DAILY_CREDITS
+
+
+def test_an_active_plan_is_left_alone_by_the_sweep():
+    email = "safe@example.com"
+    customer = _customer(email, "Safe")
+    db.start_subscription(customer["id"], plans.PLANS["yearly"], db.STATUS_ACTIVE)
+    entitlements.grant(email, "Safe", plans.PLANS["yearly"].daily_credits)
+
+    assert entitlements.sync() == 0
+    assert ak.get_user_by_email(email)["daily_credit_limit"] == plans.PAID_DAILY_CREDITS
 
 
 def test_no_subscription_means_no_entitlement():

@@ -1,21 +1,35 @@
-version: "3.9"
-
 services:
-  faq-server:
+  nexora:
     build: .
     ports:
       - "8000:8000"
     environment:
-      - ADMIN_API_KEY=${ADMIN_API_KEY:-admin-change-me}
+      # Secrets — set these in a .env file next to this compose file.
+      - ADMIN_API_KEY=${ADMIN_API_KEY:?set ADMIN_API_KEY before starting}
+
+      # Data lives on named volumes, not in the image.
+      - CHROMA_PERSIST_DIR=/app/data/chroma
+      - SQLITE_DB_PATH=/app/data/logs/nexora.db
+
+      # The SPA is served from this same origin in the container, so the
+      # browser origin is whatever the site is published at.
+      - WEB_ORIGINS=${WEB_ORIGINS:-http://localhost:8000}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
+
+      # Retrieval tuning (templates override the thresholds per bot)
       - STRONG_MATCH_THRESHOLD=${STRONG_MATCH_THRESHOLD:-0.85}
       - NEAR_MATCH_THRESHOLD=${NEAR_MATCH_THRESHOLD:-0.60}
-      - CHROMA_PERSIST_DIR=/app/data/chroma
-      - SQLITE_DB_PATH=/app/data/logs/faq_bot.db
+
+      # Billing. Leave BILLING_ALLOW_MANUAL false anywhere real — it activates
+      # plans without taking payment.
+      - BILLING_PROVIDER=${BILLING_PROVIDER:-manual}
+      - BILLING_ALLOW_MANUAL=${BILLING_ALLOW_MANUAL:-false}
+      - BILLING_COOKIE_SECURE=${BILLING_COOKIE_SECURE:-false}
+      - PAID_DAILY_CREDITS=${PAID_DAILY_CREDITS:-5000}
+      - DAILY_CREDIT_LIMIT=${DAILY_CREDIT_LIMIT:-250}
     volumes:
       - chroma-data:/app/data/chroma
       - sqlite-data:/app/data/logs
-      - ./apps/customer_bot/data:/app/apps/customer_bot/data
-      - ./apps/partner_bot/data:/app/apps/partner_bot/data
     restart: unless-stopped
 
 volumes:

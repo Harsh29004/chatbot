@@ -25,10 +25,9 @@ from shared.api_keys import (
     get_user_by_email,
     list_keys_for_email,
     revoke_key_for_email,
-    set_daily_credit_limit,
 )
 
-from apps.billing import db
+from apps.billing import db, entitlements
 from apps.billing.payments import get_provider, manual_activation_allowed
 from apps.billing.plans import PLANS, get_plan, list_plans
 from apps.billing.schemas import (
@@ -131,7 +130,7 @@ def _customer_public(customer: dict[str, Any]) -> CustomerResponse:
 
 
 def _subscription_view(customer_id: int) -> SubscriptionResponse:
-    db.expire_lapsed_subscriptions()
+    entitlements.sync()
     sub = db.get_current_subscription(customer_id)
     entitled = db.is_entitled(sub)
 
@@ -154,14 +153,7 @@ def _subscription_view(customer_id: int) -> SubscriptionResponse:
     )
 
 
-def _grant_entitlement(email: str, name: str, daily_credits: int) -> None:
-    """Point the API-key account at this plan's allowance."""
-    set_daily_credit_limit(email, daily_credits, name=name)
-
-
-def _revoke_entitlement(email: str, name: str) -> None:
-    """Drop the account back to the default free allowance."""
-    set_daily_credit_limit(email, None, name=name)
+# Grant/revoke live in apps.billing.entitlements — see that module for why.
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +175,7 @@ async def signup(body: SignupRequest, response: Response) -> CustomerResponse:
     # Everyone starts on the trial — no card, no checkout.
     trial = PLANS["trial"]
     db.start_subscription(customer["id"], trial, db.STATUS_TRIALING, provider="none")
-    _grant_entitlement(email, body.name, trial.daily_credits)
+    entitlements.grant(email, body.name, trial.daily_credits)
 
     token = generate_session_token()
     db.create_session(customer["id"], token)
@@ -337,7 +329,7 @@ async def confirm_manual(customer: dict = Depends(current_customer)) -> Subscrip
         provider=sub["provider"], provider_ref=sub["provider_ref"],
     )
     db.set_subscription_status(sub["id"], db.STATUS_EXPIRED)  # supersede the pending row
-    _grant_entitlement(customer["email"], customer["name"], plan.daily_credits)
+    entitlements.grant(customer["email"], customer["name"], plan.daily_credits)
 
     logger.warning(
         "Manual (unpaid) activation of %s for customer_id=%s — dev mode only.",
@@ -388,7 +380,7 @@ async def webhook(request: Request) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def _require_entitlement(customer: dict[str, Any]) -> None:
-    db.expire_lapsed_subscriptions()
+    entitlements.sync()
     sub = db.get_current_subscription(customer["id"])
     if not db.is_entitled(sub):
         raise HTTPException(

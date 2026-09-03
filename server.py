@@ -10,15 +10,20 @@ Run with:  ``uvicorn server:app --host 0.0.0.0 --port 8000``
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from apps.api_keys_router import router as keys_router
-from apps.billing.db import expire_lapsed_subscriptions, init_billing_tables
+from apps.billing import entitlements
+from apps.billing.db import init_billing_tables
 from apps.billing.router import router as platform_router
 from apps.bot_engine.store import init_bot_tables
 from apps.bots_router import router as bots_router
@@ -29,12 +34,32 @@ from shared.schemas import HealthResponse
 logger = logging.getLogger(__name__)
 
 
+# How often to retire lapsed subscriptions. The dashboard also syncs on read,
+# but nobody should keep a paid allowance just because they stopped logging in.
+ENTITLEMENT_SWEEP_SECONDS = int(os.getenv("ENTITLEMENT_SWEEP_SECONDS", "900"))
+
+
+async def _entitlement_sweep() -> None:
+    """Periodically expire lapsed plans and withdraw what they paid for."""
+    while True:
+        await asyncio.sleep(ENTITLEMENT_SWEEP_SECONDS)
+        try:
+            withdrawn = await asyncio.to_thread(entitlements.sync)
+            if withdrawn:
+                logger.info("Entitlement sweep withdrew %d account(s).", withdrawn)
+        except Exception:
+            # A failed sweep must never take the server down with it; the next
+            # tick retries, and the dashboard syncs on read regardless.
+            logger.exception("Entitlement sweep failed.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Startup tasks:
     1. Initialise SQLite tables (logging + API keys + billing + bots)
     2. Retire any subscriptions that lapsed while the server was down
+    3. Start the periodic entitlement sweep
     """
     init_db()
     init_api_key_tables()
@@ -42,11 +67,15 @@ async def lifespan(app: FastAPI):
     init_bot_tables()
     logger.info("Database tables initialised.")
 
-    lapsed = expire_lapsed_subscriptions()
-    if lapsed:
-        logger.info("Expired %d lapsed subscription(s) on startup.", lapsed)
+    withdrawn = entitlements.sync()
+    if withdrawn:
+        logger.info("Withdrew %d lapsed account(s) on startup.", withdrawn)
 
-    yield
+    sweep = asyncio.create_task(_entitlement_sweep())
+    try:
+        yield
+    finally:
+        sweep.cancel()
 
 
 app = FastAPI(
@@ -106,3 +135,44 @@ app.include_router(keys_router)
 async def health() -> HealthResponse:
     """Basic health check."""
     return HealthResponse(status="ok")
+
+
+# ---------------------------------------------------------------------------
+# Static web app (production only)
+# ---------------------------------------------------------------------------
+# In development Vite serves the SPA on :5173 and proxies /api here. In a
+# container the built bundle is copied to web/dist and served from this same
+# origin, which is why the session cookie needs no cross-site handling in
+# production. Registered last so it can never shadow an API route.
+
+WEB_DIST = Path(__file__).resolve().parent / "web" / "dist"
+
+if WEB_DIST.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=WEB_DIST / "assets"),
+        name="assets",
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa(full_path: str) -> FileResponse:
+        """
+        Serve the SPA shell for any non-API path.
+
+        Client-side routes like /dashboard are not files on disk, so anything
+        that isn't a real asset gets index.html and React Router takes over.
+        """
+        candidate = (WEB_DIST / full_path).resolve()
+        # Only serve real files that are genuinely inside the bundle — without
+        # the containment check, a crafted path could escape web/dist.
+        if (
+            full_path
+            and candidate.is_file()
+            and candidate.is_relative_to(WEB_DIST)
+        ):
+            return FileResponse(candidate)
+        return FileResponse(WEB_DIST / "index.html")
+
+    logger.info("Serving the web app from %s", WEB_DIST)
+else:
+    logger.info("No web/dist bundle found — API only (use the Vite dev server).")

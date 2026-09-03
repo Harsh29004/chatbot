@@ -17,7 +17,7 @@ from typing import Any
 
 from shared import config
 
-from apps.billing.plans import Plan, get_plan
+from apps.billing.plans import Plan
 from apps.billing.security import hash_session_token
 
 _LOCAL = threading.local()
@@ -332,25 +332,41 @@ def mark_invoice_paid(invoice_id: int, provider_ref: str | None = None) -> None:
 # Expiry sweep
 # ---------------------------------------------------------------------------
 
-def expire_lapsed_subscriptions() -> int:
+def expire_lapsed_subscriptions() -> list[dict[str, Any]]:
     """Flip any subscription whose period has ended to ``expired``.
 
-    Returns the number of rows changed. Called on startup and before
-    entitlement reads so a lapsed plan never keeps serving traffic just
-    because no cron job ran.
+    Returns the affected customers as ``{"id", "email", "name"}`` so the caller
+    can withdraw whatever the plan was paying for. It hands them back rather
+    than withdrawing directly because this module has no business knowing what
+    a subscription *entitles* — that lives in ``apps.billing.entitlements``.
     """
     conn = _get_conn()
-    cursor = conn.execute(
+    now = _iso(_now())
+
+    # Read the affected customers before the UPDATE: afterwards they are
+    # indistinguishable from subscriptions that expired last month.
+    rows = conn.execute(
+        """
+        SELECT DISTINCT customers.id AS id, customers.email AS email,
+                        customers.name AS name
+        FROM subscriptions
+        JOIN customers ON customers.id = subscriptions.customer_id
+        WHERE subscriptions.status IN (?, ?, ?)
+          AND subscriptions.current_period_end <= ?
+        """,
+        (STATUS_TRIALING, STATUS_ACTIVE, STATUS_CANCELED, now),
+    ).fetchall()
+
+    if not rows:
+        return []
+
+    conn.execute(
         """
         UPDATE subscriptions
         SET status = ?, updated_at = ?
         WHERE status IN (?, ?, ?) AND current_period_end <= ?
         """,
-        (
-            STATUS_EXPIRED, _iso(_now()),
-            STATUS_TRIALING, STATUS_ACTIVE, STATUS_CANCELED,
-            _iso(_now()),
-        ),
+        (STATUS_EXPIRED, now, STATUS_TRIALING, STATUS_ACTIVE, STATUS_CANCELED, now),
     )
     conn.commit()
-    return cursor.rowcount
+    return [dict(r) for r in rows]

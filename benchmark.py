@@ -272,7 +272,7 @@ def run_benchmark() -> None:
 
     # ── Summary ──────────────────────────────────────────────────────────
     print_header("SUMMARY")
-    print(f"  Embedding model:       all-MiniLM-L6-v2 (CPU)")
+    print("  Embedding model:       all-MiniLM-L6-v2 (CPU)")
     print(f"  Model load time:       {ms(model_load_time)}")
     print(f"  Avg guardrails:        {ms(statistics.mean(guard_times))}")
     print(f"  Avg embedding:         {ms(statistics.mean(embed_times))}")

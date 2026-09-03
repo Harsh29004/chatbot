@@ -1,0 +1,28 @@
+# Without this, `COPY` drags node_modules, the vector store and the local
+# database into the build context — hundreds of megabytes, and the .env would
+# end up baked into the image.
+
+.env
+.git
+.gitignore
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+
+# Local data — the container uses named volumes instead
+logs/
+chroma_data/
+
+# Built and installed artefacts (the image builds its own)
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+
+.vscode/
+.idea/
+.claude/
+*.zip
+README.md

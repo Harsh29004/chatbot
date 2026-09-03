@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 
 from shared.guardrails import detect_injection
-from shared.logging_store import get_all_logs
 
 
 INJECTION_PAYLOADS = [

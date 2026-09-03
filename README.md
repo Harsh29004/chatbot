@@ -79,8 +79,15 @@ development exactly as it is behind a reverse proxy in production.
 ### Docker
 
 ```bash
+export ADMIN_API_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
 docker-compose up --build
 ```
+
+The image builds the SPA in a Node stage and serves it from the API, so the
+whole product runs on one origin at http://localhost:8000 — no CORS, no
+cross-site cookie handling. Data lives on named volumes, and the embedding
+model is baked into the image so a cold container doesn't stall its first
+request downloading it.
 
 ## Project layout
 
@@ -266,6 +273,13 @@ Credits are pooled **per account**, not per key. An account can hold up to 10
 keys and they all draw on the same daily allowance — extra keys separate
 environments, they don't buy extra capacity. Credits reset at midnight IST.
 
+When a plan lapses the account drops back to the free allowance — deliberately
+not to zero, and its keys are **not** revoked. Someone whose card expired
+should find their bot throttled, not silently broken in production with an
+integration to rebuild when they return. `apps/billing/entitlements.py` owns
+every transition between "is paying" and "may use", so the two can't drift
+apart; a sweep runs on startup and every `ENTITLEMENT_SWEEP_SECONDS`.
+
 | Message length | Credit cost |
 |---------------|-------------|
 | 1–200 chars | 1 credit |
@@ -325,6 +339,7 @@ real environment variables take precedence over the file.
 | `PAID_DAILY_CREDITS` | `5000` | Credits granted while a paid plan is active |
 | `TRIAL_DAYS` / `TRIAL_DAILY_CREDITS` | `14` / `250` | Trial length and allowance |
 | `MAX_KEYS_PER_ACCOUNT` | `10` | Cap on active keys per account |
+| `ENTITLEMENT_SWEEP_SECONDS` | `900` | How often lapsed plans are withdrawn |
 
 ## Testing
 
@@ -332,9 +347,10 @@ real environment variables take precedence over the file.
 pytest tests/ -v
 ```
 
-217 tests covering the template catalogue, sheet ingestion, per-template scope
+224 tests covering the template catalogue, sheet ingestion, per-template scope
 enforcement, tenant isolation, injection payloads, action-intent blocking,
-pricing maths, entitlement, credit pooling, and key-ownership scoping.
+pricing maths, entitlement grant/withdrawal, credit pooling, and
+key-ownership scoping.
 
 ## Performance
 
