@@ -1,8 +1,13 @@
 """
-Configuration constants for Instant Sahay FAQ Bots.
+Configuration constants for Nexora.
 
 All tunable thresholds and environment-dependent settings live here.
 Values are loaded from environment variables with sensible defaults.
+
+Per-bot settings — which collection to search, how sure it has to be, what it
+says when it isn't — live on the template instead (``apps/bot_engine``).
+The thresholds here are only the defaults a template inherits when it doesn't
+override them.
 """
 
 import os
@@ -56,9 +61,8 @@ CHROMA_PERSIST_DIR: str = os.getenv(
     str(PROJECT_ROOT / "chroma_data"),
 )
 
-# Customer and partner collection names — never shared
-CUSTOMER_COLLECTION: str = "customer_faq_index"
-PARTNER_COLLECTION: str = "partner_faq_index"
+# Each bot's collection is named from its id (see apps/bot_engine/store.py),
+# so no two customers ever share retrieval space.
 
 # ---------------------------------------------------------------------------
 # Retrieval settings
@@ -104,15 +108,14 @@ def get_credit_cost(message_length: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Fixed response templates
+# Fallback response wording
 # ---------------------------------------------------------------------------
-CUSTOMER_DECLINE_MESSAGE: str = (
-    "I can only help with questions about Instant Sahay bookings, payments "
-    "and your account. Try rephrasing, or contact support."
-)
-PARTNER_DECLINE_MESSAGE: str = (
-    "I can only help with questions about your Instant Sahay partner account, "
-    "jobs, payouts, and KYC. Try rephrasing, or contact partner support."
+# Every template carries its own decline message and handoff nudge, written in
+# that industry's voice. These are only used by a bot whose template somehow
+# doesn't supply them.
+DEFAULT_DECLINE_MESSAGE: str = (
+    "I can only answer questions covered by this business's FAQ. Try "
+    "rephrasing, or contact the team and a person will help you directly."
 )
 NEAR_MATCH_SUFFIX: str = (
     "\n\nIf this doesn't fully answer your question, please contact support "

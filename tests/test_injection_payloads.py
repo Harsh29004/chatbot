@@ -42,9 +42,9 @@ def test_injection_detected(payload):
 def test_benign_input_not_flagged():
     """Normal questions should NOT trigger the injection detector."""
     benign = [
-        "How do I cancel a booking?",
+        "How do I cancel an order?",
         "What payment methods do you accept?",
-        "When do I receive my payout?",
+        "When will my refund arrive?",
         "I need help with my account",
         "The app is not working properly",
     ]
@@ -57,9 +57,9 @@ def test_benign_input_not_flagged():
 # -- End-to-end injection tests via graph -----------------------------------
 
 @pytest.mark.parametrize("payload", INJECTION_PAYLOADS)
-def test_customer_injection_via_graph(customer_graph, payload):
+def test_injection_via_graph(demo_graph, payload):
     """Injection payloads should decline or return benign FAQ, never comply."""
-    result = customer_graph.invoke(
+    result = demo_graph.invoke(
         {"query": payload, "session_id": "injection-test"}
     )
     # Must not comply — response should be a known FAQ answer or decline
@@ -72,9 +72,9 @@ def test_customer_injection_via_graph(customer_graph, payload):
 
 
 @pytest.mark.parametrize("payload", INJECTION_PAYLOADS)
-def test_injection_flagged_in_state(customer_graph, payload):
+def test_injection_flagged_in_state(demo_graph, payload):
     """Injection flag should be True in the graph state."""
-    result = customer_graph.invoke(
+    result = demo_graph.invoke(
         {"query": payload, "session_id": "injection-flag-test"}
     )
     assert result.get("flagged_injection") is True, (
@@ -85,11 +85,12 @@ def test_injection_flagged_in_state(customer_graph, payload):
 # -- API-level injection tests ---------------------------------------------
 
 @pytest.mark.parametrize("payload", INJECTION_PAYLOADS[:3])
-def test_customer_injection_via_api(customer_client, payload):
+def test_injection_via_api(api_client, payload):
     """Injection via the HTTP endpoint should be handled safely."""
-    resp = customer_client.post(
-        "/customer-bot/ask",
+    resp = api_client.post(
+        "/v1/ask",
         json={"message": payload, "session_id": "api-injection"},
+        headers={"X-Api-Key": "test-key"},
     )
     assert resp.status_code == 200
     data = resp.json()

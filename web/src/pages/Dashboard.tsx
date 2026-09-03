@@ -252,7 +252,7 @@ export function Dashboard() {
                   [
                     { text: "  -H " },
                     {
-                      text: `"X-Api-Key: ${activeKeys[0]?.key_prefix ?? "isk_…"}…"`,
+                      text: `"X-Api-Key: ${activeKeys[0]?.key_prefix ?? "nxk_…"}…"`,
                       tone: "str" as const,
                     },
                     { text: " \\" },

@@ -8,18 +8,19 @@ import { TemplatePicker } from "../components/TemplatePicker";
 // three.js is ~600kb. It should never block the headline from rendering.
 const HeroScene = lazy(() => import("../three/HeroScene"));
 
+// Swap the host for your own once the domain is live.
 const REQUEST_SAMPLE = [
-  [{ text: "curl -X POST https://api.instantsahay.com/customer-bot/ask \\" }],
-  [{ text: '  -H ' }, { text: '"X-Api-Key: isk_live_9f3c…"', tone: "str" as const }, { text: " \\" }],
+  [{ text: "curl -X POST https://api.nexora.app/v1/ask \\" }],
+  [{ text: '  -H ' }, { text: '"X-Api-Key: nxk_live_9f3c…"', tone: "str" as const }, { text: " \\" }],
   [{ text: '  -H ' }, { text: '"Content-Type: application/json"', tone: "str" as const }, { text: " \\" }],
-  [{ text: "  -d '{" }, { text: '"message"', tone: "key" as const }, { text: ': ' }, { text: '"How do I cancel a booking?"', tone: "str" as const }, { text: ", " }, { text: '"session_id"', tone: "key" as const }, { text: ': ' }, { text: '"u_1182"', tone: "str" as const }, { text: "}'" }],
+  [{ text: "  -d '{" }, { text: '"message"', tone: "key" as const }, { text: ': ' }, { text: '"How do I cancel an order?"', tone: "str" as const }, { text: ", " }, { text: '"session_id"', tone: "key" as const }, { text: ': ' }, { text: '"u_1182"', tone: "str" as const }, { text: "}'" }],
   [],
   [{ text: "# 200 OK", tone: "cmt" as const }],
   [{ text: "{" }],
-  [{ text: "  " }, { text: '"response"', tone: "key" as const }, { text: ": " }, { text: '"Open My Bookings, pick the booking, tap Cancel…"', tone: "str" as const }, { text: "," }],
+  [{ text: "  " }, { text: '"response"', tone: "key" as const }, { text: ": " }, { text: '"Open My Orders, select the order and choose Cancel…"', tone: "str" as const }, { text: "," }],
   [{ text: "  " }, { text: '"mode"', tone: "key" as const }, { text: ": " }, { text: '"strong"', tone: "str" as const }, { text: "," }],
-  [{ text: "  " }, { text: '"matched_question"', tone: "key" as const }, { text: ": " }, { text: '"How do I cancel a booking?"', tone: "str" as const }, { text: "," }],
-  [{ text: "  " }, { text: '"confidence"', tone: "key" as const }, { text: ": 0.92" }],
+  [{ text: "  " }, { text: '"matched_question"', tone: "key" as const }, { text: ": " }, { text: '"How do I cancel an order?"', tone: "str" as const }, { text: "," }],
+  [{ text: "  " }, { text: '"confidence"', tone: "key" as const }, { text: ": 0.98" }],
   [{ text: "}" }],
 ];
 

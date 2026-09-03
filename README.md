@@ -1,6 +1,12 @@
-# Chatbot API Server
+# Nexora
 
-Pure API bot server for retrieval-grounded FAQ chatbots. **Phase 1: zero LLM generation** — answers come directly from the FAQ sheet (verbatim, near-match with nudge, or fixed decline). No generation model in the response path.
+Retrieval-grounded FAQ chatbots, sold as a service.
+
+A customer signs up, picks one of ten templates, uploads their FAQ sheet, and
+gets an API key. Their bot answers from that sheet — **verbatim, with zero LLM
+generation in the response path** — and refuses anything the sheet and template
+don't cover. It cannot invent an answer, because nothing in the pipeline
+writes prose.
 
 ## Architecture
 
@@ -48,19 +54,22 @@ Run `python benchmark.py` to reproduce.
 ### Setup
 
 ```bash
-cd chatbot
 pip install -r requirements.txt
 
 # Copy env and configure
 cp .env.example .env
 # Edit .env — set ADMIN_API_KEY
 
-# Generate dummy FAQ data (or place your real Excel sheets)
-python generate_dummy_data.py
+# API (terminal one)
+uvicorn server:app --reload --port 8000
 
-# Run the server (auto-ingests FAQ data on startup)
-uvicorn server:app --host 0.0.0.0 --port 8000
+# Web app (terminal two)
+cd web && npm install && npm run dev   # http://localhost:5173
 ```
+
+Sign up at http://localhost:5173, pick a template, download the starter sheet,
+upload it back, and create a key. There is no seed data to generate — every
+bot's content is its owner's sheet.
 
 ### Docker
 
@@ -72,47 +81,46 @@ docker-compose up --build
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/customer-bot/ask` | `X-Api-Key` | Ask the customer FAQ bot |
-| `POST` | `/partner-bot/ask` | `X-Api-Key` | Ask the partner FAQ bot |
-| `POST` | `/api/keys/generate` | `X-Admin-Key` | Generate a new API key |
-| `GET` | `/api/keys` | `X-Admin-Key` | List all API keys |
-| `DELETE` | `/api/keys/{id}` | `X-Admin-Key` | Revoke an API key |
+| `POST` | `/v1/ask` | `X-Api-Key` | **Ask the bot** — the endpoint customers integrate |
 | `GET` | `/api/keys/usage` | `X-Api-Key` | Check credit usage |
 | `GET` | `/api/keys/pricing` | None | View credit cost tiers |
-| `POST` | `/admin/reindex/{bot_type}` | `X-Admin-Key` | Re-ingest Excel data |
+| `POST` | `/api/keys/generate` | `X-Admin-Key` | Issue a key for an account |
+| `GET` | `/api/keys` | `X-Admin-Key` | List all API keys |
+| `DELETE` | `/api/keys/{id}` | `X-Admin-Key` | Revoke an API key |
 | `GET` | `/health` | None | Health check |
+
+Template, bot, account and billing endpoints are listed in their own sections
+below.
 
 ### Example Usage
 
 ```bash
-# 1. Generate an API key (admin)
+# 1. Issue an API key for an account (admin)
 curl -X POST http://localhost:8000/api/keys/generate \
   -H "X-Admin-Key: your-admin-key" \
   -H "Content-Type: application/json" \
   -d '{"owner_email": "app@example.com", "owner_name": "My App"}'
 
-# 2. Ask a question (using the generated API key)
-curl -X POST http://localhost:8000/customer-bot/ask \
-  -H "X-Api-Key: isk_xxxxxxxxxxxxxxxx" \
+# 2. Ask the account's bot a question
+curl -X POST http://localhost:8000/v1/ask \
+  -H "X-Api-Key: nxk_xxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
-  -d '{"message": "How do I cancel a booking?", "session_id": "abc123"}'
+  -d '{"message": "How do I cancel an order?", "session_id": "abc123"}'
 
 # Response
 {
-  "response": "To cancel a booking, go to My Bookings...",
+  "response": "Open My Orders, select the order and choose Cancel Order...",
   "mode": "strong",
-  "matched_question": "How do I cancel a booking?",
-  "confidence": 0.92
+  "matched_question": "How do I cancel an order?",
+  "confidence": 0.98
 }
 
 # 3. Check credit usage
 curl http://localhost:8000/api/keys/usage \
-  -H "X-Api-Key: isk_xxxxxxxxxxxxxxxx"
-
-# 4. Reindex FAQ data (admin)
-curl -X POST http://localhost:8000/admin/reindex/customer \
-  -H "X-Admin-Key: your-admin-key"
+  -H "X-Api-Key: nxk_xxxxxxxxxxxxxxxx"
 ```
+
+Keys are prefixed `nxk_`; owner keys (see below) are prefixed `nxo_`.
 
 ## Credit System
 
@@ -129,7 +137,7 @@ Credit info is returned in response headers: `X-Credits-Remaining`, `X-Credits-D
 
 ### Owner keys (unlimited, internal use only)
 
-An **owner key** (prefix `iso_`) skips credit checks entirely — no limit, no deduction. It exists only for the project owners themselves and is minted locally, never via an HTTP endpoint:
+An **owner key** (prefix `nxo_`) skips credit checks entirely — no limit, no deduction. It exists only for the project owners themselves and is minted locally, never via an HTTP endpoint:
 
 ```bash
 python scripts/create_owner_key.py owner@example.com "Harsh"
@@ -195,7 +203,7 @@ re-upload has to be able to remove an answer.
 
 ```bash
 curl -X POST http://localhost:8000/v1/ask \
-  -H "X-Api-Key: isk_xxxxxxxx" \
+  -H "X-Api-Key: nxk_xxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{"message": "What are your delivery charges?", "session_id": "u_1"}'
 
@@ -286,7 +294,7 @@ real domain, and verify webhook signatures in `POST /api/billing/webhook`
 pytest tests/ -v
 ```
 
-209 tests covering: known questions, near-match phrasing, out-of-scope rejection, injection payloads, action-intent blocking, pricing maths, entitlement, credit pooling, key-ownership scoping, the template catalogue, sheet ingestion, and per-template scope enforcement.
+217 tests covering: known questions, near-match phrasing, out-of-scope rejection, injection payloads, action-intent blocking, pricing maths, entitlement, credit pooling, key-ownership scoping, the template catalogue, sheet ingestion, and per-template scope enforcement.
 
 ## Configuration
 
@@ -312,22 +320,35 @@ All settings in `.env` / `shared/config.py`:
 `.env` is loaded automatically by `shared/config.py`; real environment
 variables take precedence over the file.
 
-## Excel Sheet Format
+## Sheet format
 
-Both `customer_faq.xlsx` and `partner_faq.xlsx` must have:
+Uploaded as `.xlsx` or `.csv`. Column names are matched case- and
+space-insensitively.
 
-| Column | Description |
-|--------|-------------|
-| `Question` | The canonical FAQ question |
-| `Alt_Phrasings` | Semicolon-separated alternate phrasings |
-| `Category` | Category label (Bookings, Payments, etc.) |
-| `Answer` | The approved answer text (returned verbatim) |
+| Column | Required | Description |
+|--------|----------|-------------|
+| `Question` | **yes** | The canonical question |
+| `Answer` | **yes** | The approved answer, returned verbatim |
+| `Alt_Phrasings` | no | Semicolon-separated alternate wordings |
+| `Category` | no | Category label, surfaced in the dashboard |
+
+Blank and duplicate rows are reported rather than fatal, so one bad row
+doesn't cost someone their upload.
+
+One thing worth knowing when writing `Alt_Phrasings`: the action guardrail
+runs *before* retrieval, so listing a phrasing like "cancel my order" won't
+make the bot answer it — that phrasing asks the bot to *cancel*, not to
+explain cancelling, and is refused by design. Write alternates as questions
+("order cancellation", "cancellation policy").
 
 ## Security
 
-- **No prompt injection risk** — user input is only used as embedding query input, never in any LLM prompt
-- **Injection detection** — regex-based pattern detector flags suspicious input for review
-- **Action blocking** — requests to "do something" (refund, cancel, change) are declined regardless of FAQ match
-- **Isolated data** — separate ChromaDB collections per bot, zero cross-contamination
-- **API key hashing** — keys are stored as SHA-256 hashes, raw keys shown only once at generation
+- **No prompt injection risk** — user input is only ever an embedding query. It is never placed in an LLM prompt, because there is no LLM in the response path
+- **Injection detection** — regex pattern detector flags suspicious input for review (logging only, so the detector isn't itself an attack surface)
+- **Action blocking** — requests to "do something" (refund, cancel, change) are declined regardless of how well they match the sheet. Templates add their own: the clinic bot never appears to book an appointment, the fintech bot never gives investment advice
+- **Tenant isolation** — every bot gets its own ChromaDB collection, named from its id. One customer's bot cannot retrieve another's answers
+- **API key hashing** — keys are stored as SHA-256 hashes and shown once at generation. Revocation is scoped by owner, so a customer cannot revoke someone else's key by guessing an id
+- **Passwords** — PBKDF2-HMAC-SHA256, 600k iterations, salted per user
+- **Sessions** — opaque tokens stored as hashes in an httpOnly cookie; revocable server-side
+- **No card data** — payments are hosted checkout only
 - **Auth separation** — user API keys and admin keys use different headers and routes

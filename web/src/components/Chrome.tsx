@@ -5,11 +5,11 @@ import { useAuth } from "../lib/auth";
 
 export function Logo() {
   return (
-    <Link to="/" className="logo" aria-label="Instant Sahay home">
+    <Link to="/" className="logo" aria-label="Nexora home">
       <span className="logo-mark" aria-hidden="true">
-        S
+        N
       </span>
-      Instant Sahay
+      Nexora
     </Link>
   );
 }

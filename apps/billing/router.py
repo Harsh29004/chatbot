@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["Platform"])
 
-SESSION_COOKIE = "sahay_session"
+SESSION_COOKIE = "nexora_session"
 COOKIE_SECURE = os.getenv("BILLING_COOKIE_SECURE", "false").lower() == "true"
 MAX_KEYS_PER_ACCOUNT = int(os.getenv("MAX_KEYS_PER_ACCOUNT", "10"))
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:5173")
@@ -97,10 +97,10 @@ def _record_failure(key: str) -> None:
 # ---------------------------------------------------------------------------
 
 def current_customer(
-    sahay_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    nexora_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> dict[str, Any]:
     """Resolve the session cookie to a customer, or 401."""
-    customer = db.get_session_customer(sahay_session or "")
+    customer = db.get_session_customer(nexora_session or "")
     if customer is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -227,11 +227,11 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Cus
 @router.post("/auth/logout")
 async def logout(
     response: Response,
-    sahay_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    nexora_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> dict[str, str]:
     """Revoke the current session server-side and clear the cookie."""
-    if sahay_session:
-        db.revoke_session(sahay_session)
+    if nexora_session:
+        db.revoke_session(nexora_session)
     response.delete_cookie(SESSION_COOKIE, path="/")
     return {"status": "signed out"}
 

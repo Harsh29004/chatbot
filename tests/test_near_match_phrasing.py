@@ -1,117 +1,149 @@
 """
-Test near-match phrasing — reworded and misspelled FAQ questions.
+Near-match phrasing — reworded questions and alternate wordings.
 
-Reworded questions should land as NEAR_MATCH or STRONG_MATCH, never
-as DECLINE.  With mock embeddings (hash-based, not truly semantic),
-we test the pipeline wiring rather than semantic quality — the real
-Ollama embeddings will do better.
+Real users don't type the sheet's wording. These tests check that the
+pipeline handles rewordings without falling over, and that the alternate
+phrasings a customer lists in their sheet actually route to the right answer.
+
+The mock embeddings are hash-based rather than semantic, so a *paraphrase*
+with no shared words can't be expected to match — the real model handles
+that. What is asserted here is the wiring: valid modes, non-empty answers,
+and exact alternate phrasings landing on their own row.
 """
 
 from __future__ import annotations
 
 import pytest
 
-
-# -- Customer bot: reworded questions --------------------------------------
-
-CUSTOMER_REWORDED = [
-    # (reworded question, substring that should appear in the answer)
-    ("How can I cancel my booking?", "Cancel Booking"),
-    ("I want to cancel a service", "Cancel Booking"),
-    ("Where is my refund?", "Refunds"),
-    ("I haven't received my money back", "Refunds"),
-    ("How to update my mobile number?", "phone number"),
-    ("What are the payment options?", "UPI"),
-    ("Can I pay with UPI?", "UPI"),
-    ("How to change booking time?", "Reschedule"),
-    ("I need to move my appointment", "Reschedule"),
+# Rewordings of questions in the demo sheet.
+REWORDED = [
+    "How can I cancel my order?",
+    "I want to cancel a purchase",
+    "Where is my refund?",
+    "I haven't received my money back",
+    "How to update my mobile number?",
+    "What are the payment options?",
+    "Can I pay with UPI?",
+    "How much is shipping?",
+    "I need to send an item back",
 ]
 
 
-@pytest.mark.parametrize("query,expected_substr", CUSTOMER_REWORDED)
-def test_customer_reworded_not_declined(customer_graph, query, expected_substr):
-    """
-    Reworded questions should NOT decline.
+@pytest.mark.parametrize("query", REWORDED)
+def test_reworded_question_returns_a_valid_answer(demo_graph, query):
+    """Whatever tier it lands in, it must return a real response."""
+    result = demo_graph.invoke({"query": query, "session_id": "near-match-test"})
 
-    Note: With mock (hash-based) embeddings, we may get NEAR or STRONG
-    depending on how the hash collides.  The important thing is that
-    we don't get DECLINE for a clearly related question.
-    """
-    result = customer_graph.invoke(
-        {"query": query, "session_id": "near-match-test"}
-    )
-    # With mock embeddings, we can't guarantee strong/near for reworded
-    # questions (they're not truly semantic), so we verify the pipeline
-    # at least runs without error and returns a valid mode.
-    assert result["mode"] in ("strong", "near", "decline")
-    # The response should be a string (not None or empty)
-    assert isinstance(result["response"], str)
-    assert len(result["response"]) > 0
-
-
-# -- Partner bot: reworded questions ---------------------------------------
-
-PARTNER_REWORDED = [
-    ("What is my KYC verification status?", "KYC"),
-    ("Check my document status", "KYC"),
-    ("When will I get paid?", "Payout"),
-    ("How does job assignment work?", "assigned"),
-    ("How do customer reviews affect my rating?", "rating"),
-    ("What if I cancel an accepted job?", "penalty"),
-]
-
-
-@pytest.mark.parametrize("query,expected_substr", PARTNER_REWORDED)
-def test_partner_reworded_not_declined(partner_graph, query, expected_substr):
-    """Reworded partner questions — pipeline runs, valid response."""
-    result = partner_graph.invoke(
-        {"query": query, "session_id": "near-match-test"}
-    )
     assert result["mode"] in ("strong", "near", "decline")
     assert isinstance(result["response"], str)
     assert len(result["response"]) > 0
 
 
-# -- Near-match response format tests --------------------------------------
+@pytest.mark.parametrize("query", REWORDED)
+def test_reworded_question_reports_a_confidence(demo_graph, query):
+    """Customers route on this score, so it must always be present and sane."""
+    result = demo_graph.invoke({"query": query, "session_id": "near-match-test"})
 
-def test_near_match_has_support_nudge(customer_graph):
-    """
-    If a query lands as NEAR_MATCH, the response must contain the
-    support-nudge suffix.
-    """
-    from shared.config import NEAR_MATCH_SUFFIX
+    assert 0.0 <= result["confidence"] <= 1.0
 
-    # Use a query that's somewhat related but not exact — with mock
-    # embeddings we can't guarantee NEAR_MATCH, so we conditionally check
-    result = customer_graph.invoke(
-        {"query": "booking cancel help", "session_id": "nudge-test"}
+
+# -- Alternate phrasings from the sheet ------------------------------------
+# These are listed in the customer's own Alt_Phrasings column, so they are
+# indexed as their own vectors and should route to that row's answer.
+
+ALT_PHRASINGS = [
+    ("order cancellation", "Cancel Order"),
+    ("money back", "Refunds are processed"),
+    ("update phone number", "Edit Profile"),
+    ("payment options", "UPI"),
+    ("order tracking", "live tracking"),
+    ("shipping cost", "Delivery is free"),
+    ("return policy", "within 7 days"),
+]
+
+
+@pytest.mark.parametrize("phrasing,expected_substr", ALT_PHRASINGS)
+def test_alternate_phrasing_finds_its_row(demo_graph, phrasing, expected_substr):
+    result = demo_graph.invoke({"query": phrasing, "session_id": "alt-test"})
+
+    assert result["mode"] in ("strong", "near"), (
+        f"Alternate phrasing '{phrasing}' should not decline"
     )
-    if result["mode"] == "near":
-        assert NEAR_MATCH_SUFFIX.strip() in result["response"], (
-            "Near-match response missing support nudge suffix"
+    assert expected_substr in result["response"]
+
+
+def test_an_action_phrased_alternate_still_declines(demo_graph, demo_template):
+    """
+    Worth knowing when writing a sheet: the action guardrail runs *before*
+    retrieval, so listing "cancel my order" under Alt_Phrasings does not make
+    the bot answer it. That is intended — the phrasing asks the bot to cancel,
+    not to explain cancelling — but it surprises people, so it is pinned here.
+    """
+    result = demo_graph.invoke({"query": "cancel my order", "session_id": "alt-action"})
+
+    assert result["mode"] == "decline"
+    assert result["response"] == demo_template.decline_message
+
+    # The informational form of the same question is answered normally.
+    informational = demo_graph.invoke(
+        {"query": "How do I cancel an order?", "session_id": "alt-action-2"}
+    )
+    assert informational["mode"] != "decline"
+
+
+# -- The near tier attaches a handoff --------------------------------------
+
+def _graph_with_thresholds(bot, template, *, strong: float, near: float):
+    """The demo bot's own collection, re-read at a chosen confidence band."""
+    from apps.bot_engine.graph import BotConfig, build_graph
+
+    return build_graph(
+        BotConfig(
+            collection_name=bot["collection_name"],
+            decline_message=template.decline_message,
+            near_match_suffix=template.near_match_suffix,
+            strong_threshold=strong,
+            near_threshold=near,
         )
-
-
-# -- API-level near-match tests --------------------------------------------
-
-def test_customer_reworded_api(customer_client):
-    """Reworded question via HTTP should not 500."""
-    resp = customer_client.post(
-        "/customer-bot/ask",
-        json={"message": "How can I cancel my booking?", "session_id": "api-near"},
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["mode"] in ("strong", "near", "decline")
-    assert "response" in data
 
 
-def test_partner_reworded_api(partner_client):
-    """Reworded partner question via HTTP should not 500."""
-    resp = partner_client.post(
-        "/partner-bot/ask",
-        json={"message": "When will I get paid?", "session_id": "api-near"},
+def test_a_near_match_appends_the_templates_handoff(demo_bot, demo_template):
+    """
+    A hedged answer should say it is hedged. Driving the tier with thresholds
+    is more honest than hunting for a query that happens to land in it.
+    """
+    # Nothing can reach strong; almost anything clears near.
+    graph = _graph_with_thresholds(demo_bot, demo_template, strong=1.01, near=0.10)
+
+    result = graph.invoke(
+        {"query": "How do I get a refund?", "session_id": "near-forced"}
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["mode"] in ("strong", "near", "decline")
+
+    assert result["mode"] == "near"
+    assert result["response"].endswith(demo_template.near_match_suffix)
+    assert "Refunds are processed" in result["response"]
+
+
+def test_a_strong_match_does_not_append_the_handoff(demo_bot, demo_template):
+    """The same answer, above the strong threshold, comes back clean."""
+    graph = _graph_with_thresholds(demo_bot, demo_template, strong=0.10, near=0.05)
+
+    result = graph.invoke(
+        {"query": "How do I get a refund?", "session_id": "strong-forced"}
+    )
+
+    assert result["mode"] == "strong"
+    assert not result["response"].endswith(demo_template.near_match_suffix)
+
+
+def test_everything_below_the_near_threshold_declines(demo_bot, demo_template):
+    """Raise the floor above any achievable score and even a perfect match is refused."""
+    graph = _graph_with_thresholds(demo_bot, demo_template, strong=1.02, near=1.01)
+
+    result = graph.invoke(
+        {"query": "How do I get a refund?", "session_id": "decline-forced"}
+    )
+
+    assert result["mode"] == "decline"
+    assert result["response"] == demo_template.decline_message

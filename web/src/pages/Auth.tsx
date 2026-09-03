@@ -165,7 +165,7 @@ export function SignUp() {
             autoComplete="organization"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Instant Sahay"
+            placeholder="Acme Retail"
           />
         </div>
 

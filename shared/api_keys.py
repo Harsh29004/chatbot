@@ -34,8 +34,8 @@ from shared import config
 
 _LOCAL = threading.local()
 
-KEY_PREFIX = "isk_"  # Instant Sahay Key
-OWNER_KEY_PREFIX = "iso_"  # Instant Sahay Owner key — visually distinct
+KEY_PREFIX = "nxk_"  # Nexora Key
+OWNER_KEY_PREFIX = "nxo_"  # Nexora Owner key — visually distinct in logs
 
 ROLE_USER = "user"
 ROLE_OWNER = "owner"
@@ -198,7 +198,7 @@ def generate_api_key(owner_email: str, owner_name: str = "", label: str = "") ->
     """
     user = _get_or_create_user(owner_email, owner_name, role=ROLE_USER)
 
-    raw_key = KEY_PREFIX + secrets.token_hex(24)  # isk_ + 48 hex chars
+    raw_key = KEY_PREFIX + secrets.token_hex(24)  # nxk_ + 48 hex chars
     key_hash = _hash_key(raw_key)
     prefix = raw_key[:12]
     now = datetime.now(config.IST).isoformat()
