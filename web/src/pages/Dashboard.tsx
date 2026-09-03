@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { BotTester, SheetUploader } from "../components/BotSetup";
 import { CodeBlock, Page } from "../components/Chrome";
+import { GapList } from "../components/GapList";
 import { PricingSection } from "../components/Pricing";
 import { TemplatePicker } from "../components/TemplatePicker";
 import {
@@ -505,6 +506,23 @@ export function Dashboard() {
               )}
             </div>
           </section>
+
+          {/* Gaps ------------------------------------------------------ */}
+          {bot?.status === "ready" && (
+            <section className="card card-flush mb-5">
+              <div style={{ padding: "var(--s5)" }}>
+                <h2 className="h-card">What your bot couldn't answer</h2>
+                <p className="tiny mt-3">
+                  Real questions from the last 30 days that your sheet doesn't
+                  cover. Add them and the bot answers them next time.
+                </p>
+              </div>
+              <div className="divider" />
+              <div style={{ padding: "var(--s5)" }}>
+                <GapList />
+              </div>
+            </section>
+          )}
 
           {/* Plan ------------------------------------------------------ */}
           <section className="section-tight" id="plan">

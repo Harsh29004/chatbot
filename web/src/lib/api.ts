@@ -202,6 +202,20 @@ export interface Answer {
   confidence: number;
 }
 
+export interface Gap {
+  question: string;
+  times_asked: number;
+  last_asked: string;
+  best_score: number;
+  verdict: "nearly" | "missing";
+}
+
+export interface Gaps {
+  gaps: Gap[];
+  days: number;
+  flagged_inputs: number;
+}
+
 // ---------------------------------------------------------------------------
 // Endpoints
 // ---------------------------------------------------------------------------
@@ -257,4 +271,6 @@ export const api = {
 
   preview: (message: string) =>
     post<Answer>("/bot/preview", { message, session_id: "dashboard-preview" }),
+
+  gaps: (days = 30) => request<Gaps>(`/bot/gaps?days=${days}`),
 };

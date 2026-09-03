@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from shared.api_keys import get_user_by_email
 from shared.auth import verify_api_key
+from shared.logging_store import count_flagged_inputs, get_gap_summary
 
 from apps.billing.router import current_customer
 from apps.bot_engine import store
@@ -133,6 +134,22 @@ class SheetUploadResponse(BaseModel):
     warnings: list[str]
     categories: list[str]
     bot: BotResponse
+
+
+class Gap(BaseModel):
+    question: str
+    times_asked: int
+    last_asked: str
+    best_score: float
+    # "nearly" = the sheet almost covers it, likely just needs an alternate
+    # phrasing. "missing" = nothing close, needs a new row.
+    verdict: Literal["nearly", "missing"]
+
+
+class GapsResponse(BaseModel):
+    gaps: list[Gap]
+    days: int
+    flagged_inputs: int
 
 
 class AskRequest(BaseModel):
@@ -290,6 +307,46 @@ async def upload_sheet(
         warnings=result.warnings,
         categories=result.categories,
         bot=_bot_public(updated),
+    )
+
+
+@router.get("/api/bot/gaps", response_model=GapsResponse)
+async def gaps(
+    days: int = 30,
+    customer: dict = Depends(current_customer),
+) -> GapsResponse:
+    """
+    What your bot couldn't answer — the list of rows worth adding to your sheet.
+
+    Scoped to this account's bot. These are questions real users asked, so
+    leaking them across tenants would be leaking someone else's customers.
+    """
+    days = max(1, min(days, 365))
+
+    user_id = _account_user_id(customer)
+    bot = store.get_or_create_bot(user_id)
+    label = f"bot:{bot['id']}"
+
+    template = get_template(bot["template_id"])
+    near_threshold = template.near_threshold if template else 0.6
+
+    rows = get_gap_summary(label, days=days)
+
+    return GapsResponse(
+        days=days,
+        flagged_inputs=count_flagged_inputs(label, days=days),
+        gaps=[
+            Gap(
+                question=row["question"],
+                times_asked=row["times_asked"],
+                last_asked=row["last_asked"],
+                best_score=round(row["best_score"], 3),
+                # Above the near threshold the bot did answer, just hedged —
+                # that is a phrasing problem, not a missing answer.
+                verdict="nearly" if row["best_score"] >= near_threshold else "missing",
+            )
+            for row in rows
+        ],
     )
 
 

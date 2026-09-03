@@ -230,6 +230,28 @@ reset time, so a client can fall back to a support form instead of erroring.
 | `PUT` | `/api/bot` | cookie | Pick or switch template |
 | `POST` | `/api/bot/sheet` | cookie | Upload the FAQ sheet |
 | `POST` | `/api/bot/preview` | cookie | Test a question — costs no credits |
+| `GET` | `/api/bot/gaps` | cookie | What the bot couldn't answer |
+
+### The gap list
+
+Every declined or hedged question is logged, and `GET /api/bot/gaps` (plus a
+dashboard card) turns that into the list of rows worth adding to the sheet.
+This is the loop that makes a bot get better: someone asks something the sheet
+doesn't cover → it appears here → the owner adds a row → it's answered next
+time.
+
+Questions are grouped case-insensitively and ranked by how often they were
+asked, because a raw feed of every miss is unreadable and nobody acts on it.
+Each row carries a verdict derived from how close the bot got:
+
+- **Needs phrasing** — scored above the template's near threshold, so the sheet
+  nearly covers it. Add the wording people actually used to `Alt_Phrasings`.
+- **Not covered** — nothing close. Write a new row.
+
+Injection attempts are counted separately and kept out of the list; they are
+attacks, not missing answers. The query is scoped to the signed-in account's
+bot — these are real end-users' questions, so leaking them across tenants would
+be leaking someone else's customers.
 
 ### Accounts and billing (session cookie)
 
@@ -347,10 +369,10 @@ real environment variables take precedence over the file.
 pytest tests/ -v
 ```
 
-227 tests covering the template catalogue, sheet ingestion, per-template scope
+240 tests covering the template catalogue, sheet ingestion, per-template scope
 enforcement, tenant isolation, injection payloads, action-intent blocking,
-pricing maths, entitlement grant/withdrawal, credit pooling, and
-key-ownership scoping.
+pricing maths, entitlement grant/withdrawal, credit pooling, key-ownership
+scoping, and gap-list tenant scoping.
 
 ## Performance
 
