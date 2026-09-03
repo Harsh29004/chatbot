@@ -364,6 +364,28 @@ def consume_credits(
     return get_credits_remaining(user_id)
 
 
+def record_request(
+    user_id: int, api_key_id: int, endpoint: str, message_len: int, cost: int = 0
+) -> None:
+    """
+    Log a request without touching the credit pool.
+
+    Used for owner keys, which skip billing entirely. Skipping the *charge* is
+    intended; skipping the audit trail is not — an unlimited key that leaves no
+    record of what it did is exactly the key you most want a record of.
+    """
+    conn = _get_conn()
+    conn.execute(
+        """
+        INSERT INTO request_log (api_key_id, user_id, endpoint, message_len, credit_cost, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (api_key_id, user_id, endpoint, message_len, cost,
+         datetime.now(config.IST).isoformat()),
+    )
+    conn.commit()
+
+
 def get_next_reset_time() -> str:
     """Return the next midnight IST as an ISO timestamp."""
     now = datetime.now(config.IST)

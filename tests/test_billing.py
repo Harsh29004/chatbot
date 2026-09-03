@@ -15,6 +15,7 @@ from apps.billing import db, entitlements, plans
 from apps.billing.security import (
     generate_session_token,
     hash_password,
+    hash_session_token,
     verify_password,
 )
 from shared import api_keys as ak
@@ -105,6 +106,42 @@ def test_session_round_trip_and_revocation():
 
     db.revoke_session(token)
     assert db.get_session_customer(token) is None
+
+
+def test_dead_sessions_are_purged_but_live_ones_survive():
+    """
+    Sessions are written on every sign-in and never removed, so the table grows
+    forever — and every row is a hashed credential nobody needs any more.
+    """
+    from datetime import datetime, timedelta
+
+    from shared import config
+
+    customer = _customer("purge@example.com")
+
+    live = generate_session_token()
+    db.create_session(customer["id"], live)
+
+    stale = generate_session_token()
+    db.create_session(customer["id"], stale)
+    long_ago = (datetime.now(config.IST) - timedelta(days=30)).isoformat()
+    conn = db._get_conn()
+    conn.execute(
+        "UPDATE sessions SET expires_at = ? WHERE token_hash = ?",
+        (long_ago, hash_session_token(stale)),
+    )
+    conn.commit()
+
+    assert db.purge_dead_sessions() == 1
+    assert db.get_session_customer(live) is not None, "live session was purged!"
+
+
+def test_purging_is_safe_to_repeat():
+    customer = _customer("repeat-purge@example.com")
+    db.create_session(customer["id"], generate_session_token())
+
+    assert db.purge_dead_sessions() == 0
+    assert db.purge_dead_sessions() == 0
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +415,30 @@ def test_owner_key_is_unlimited_and_marked_as_owner():
 def test_customer_keys_are_not_owner_keys():
     key = ak.generate_api_key("normal@example.com", "Normal")
     assert ak.validate_api_key(key["api_key"])["role"] == ak.ROLE_USER
+
+
+def test_owner_usage_is_logged_without_spending_credits():
+    """
+    Owner keys skip billing, which is intended. Leaving no trace of what an
+    unlimited key did is not — that is precisely the key worth auditing.
+    """
+    owner = ak.create_owner_key("audited@example.com", "Owner")
+    record = ak.validate_api_key(owner["api_key"])
+
+    ak.record_request(record["user_id"], record["id"], "/v1/ask", message_len=42)
+
+    # Logged...
+    conn = ak._get_conn()
+    row = conn.execute(
+        "SELECT endpoint, message_len, credit_cost FROM request_log WHERE user_id = ?",
+        (record["user_id"],),
+    ).fetchone()
+    assert row["endpoint"] == "/v1/ask"
+    assert row["message_len"] == 42
+    assert row["credit_cost"] == 0
+
+    # ...but nothing was charged.
+    assert ak.get_credits_used_today(record["user_id"]) == 0
 
 
 # ---------------------------------------------------------------------------

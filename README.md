@@ -347,7 +347,7 @@ real environment variables take precedence over the file.
 pytest tests/ -v
 ```
 
-224 tests covering the template catalogue, sheet ingestion, per-template scope
+227 tests covering the template catalogue, sheet ingestion, per-template scope
 enforcement, tenant isolation, injection payloads, action-intent blocking,
 pricing maths, entitlement grant/withdrawal, credit pooling, and
 key-ownership scoping.
@@ -384,3 +384,5 @@ request after a cold boot pays that. Keep the process warm.
 - **Login throttling** — 8 failed attempts per email+IP per 15 minutes
 - **No card data** — hosted checkout only
 - **Auth separation** — customer keys, admin keys, and dashboard sessions use different headers and routes
+- **Owner-key auditing** — owner keys skip billing but are still written to the request log; an unlimited key is the one most worth a trail
+- **Session hygiene** — expired and revoked sessions are purged on a sweep rather than accumulating as hashed credentials forever

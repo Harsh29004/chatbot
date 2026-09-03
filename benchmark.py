@@ -21,6 +21,7 @@ import csv
 import io
 import statistics
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,6 +29,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+# Point the log database at a throwaway file *before* anything imports config.
+# Every declined query writes an unmatched-question row, and a benchmark run
+# would otherwise dump 15 fake gaps into the real customer-facing gap list.
+import shared.config as _config  # noqa: E402
+
+_config.SQLITE_DB_PATH = str(Path(tempfile.mkdtemp(prefix="nexora-bench-")) / "bench.db")
 
 BENCH_COLLECTION = "benchmark_index"
 TEMPLATE_ID = "ecommerce"

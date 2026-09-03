@@ -189,6 +189,25 @@ def get_session_customer(raw_token: str) -> dict[str, Any] | None:
     return dict(row)
 
 
+def purge_dead_sessions(keep_days: int = 7) -> int:
+    """
+    Delete sessions that expired or were revoked more than *keep_days* ago.
+
+    Sessions are written on every sign-in and never removed otherwise, so the
+    table grows forever — and every row is a (hashed) credential nobody needs.
+    A short grace period keeps recent ones around for debugging "why was I
+    logged out".
+    """
+    cutoff = _iso(_now() - timedelta(days=keep_days))
+    conn = _get_conn()
+    cursor = conn.execute(
+        "DELETE FROM sessions WHERE expires_at < ? OR (revoked = 1 AND created_at < ?)",
+        (cutoff, cutoff),
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
 def revoke_session(raw_token: str) -> None:
     conn = _get_conn()
     conn.execute(

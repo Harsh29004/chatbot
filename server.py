@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 
 from apps.api_keys_router import router as keys_router
 from apps.billing import entitlements
-from apps.billing.db import init_billing_tables
+from apps.billing.db import init_billing_tables, purge_dead_sessions
 from apps.billing.router import router as platform_router
 from apps.bot_engine.store import init_bot_tables
 from apps.bots_router import router as bots_router
@@ -39,18 +39,26 @@ logger = logging.getLogger(__name__)
 ENTITLEMENT_SWEEP_SECONDS = int(os.getenv("ENTITLEMENT_SWEEP_SECONDS", "900"))
 
 
-async def _entitlement_sweep() -> None:
-    """Periodically expire lapsed plans and withdraw what they paid for."""
+def _sweep_once() -> tuple[int, int]:
+    """Withdraw lapsed entitlements and clear out dead sessions."""
+    return entitlements.sync(), purge_dead_sessions()
+
+
+async def _background_sweep() -> None:
+    """Periodically expire lapsed plans and tidy the sessions table."""
     while True:
         await asyncio.sleep(ENTITLEMENT_SWEEP_SECONDS)
         try:
-            withdrawn = await asyncio.to_thread(entitlements.sync)
-            if withdrawn:
-                logger.info("Entitlement sweep withdrew %d account(s).", withdrawn)
+            withdrawn, purged = await asyncio.to_thread(_sweep_once)
+            if withdrawn or purged:
+                logger.info(
+                    "Sweep: withdrew %d account(s), purged %d dead session(s).",
+                    withdrawn, purged,
+                )
         except Exception:
             # A failed sweep must never take the server down with it; the next
             # tick retries, and the dashboard syncs on read regardless.
-            logger.exception("Entitlement sweep failed.")
+            logger.exception("Background sweep failed.")
 
 
 @asynccontextmanager
@@ -67,11 +75,14 @@ async def lifespan(app: FastAPI):
     init_bot_tables()
     logger.info("Database tables initialised.")
 
-    withdrawn = entitlements.sync()
-    if withdrawn:
-        logger.info("Withdrew %d lapsed account(s) on startup.", withdrawn)
+    withdrawn, purged = _sweep_once()
+    if withdrawn or purged:
+        logger.info(
+            "Startup sweep: withdrew %d account(s), purged %d dead session(s).",
+            withdrawn, purged,
+        )
 
-    sweep = asyncio.create_task(_entitlement_sweep())
+    sweep = asyncio.create_task(_background_sweep())
     try:
         yield
     finally:

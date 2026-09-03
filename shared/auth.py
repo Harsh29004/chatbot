@@ -17,6 +17,7 @@ from shared.api_keys import (
     consume_credits,
     get_credits_remaining,
     get_next_reset_time,
+    record_request,
     validate_api_key,
 )
 from shared.config import ADMIN_API_KEY, DAILY_CREDIT_LIMIT, get_credit_cost
@@ -48,10 +49,22 @@ async def verify_api_key(
             detail="Invalid or revoked API key.",
         )
 
-    # Owner keys bypass credit checks entirely — unlimited access.
+    # Owner keys bypass credit checks entirely — unlimited access. They are
+    # still logged: not charging is deliberate, leaving no audit trail is not.
     if key_record["role"] == ROLE_OWNER:
+        try:
+            body = await request.json()
+            message_len = len(body.get("message", ""))
+        except Exception:
+            message_len = 0
+
+        record_request(
+            key_record["user_id"], key_record["id"], request.url.path, message_len
+        )
+
         response.headers["X-Credits-Remaining"] = "unlimited"
         response.headers["X-Credits-Daily-Limit"] = "unlimited"
+        response.headers["X-Credits-Reset-At"] = get_next_reset_time()
         response.headers["X-Credit-Cost"] = "0"
         return key_record
 
