@@ -97,8 +97,8 @@ export function Landing() {
 
             <div className="hero-meta">
               <div className="hero-meta-item">
-                <span className="hero-meta-value">25ms</span>
-                <span className="tiny">median response</span>
+                <span className="hero-meta-value">18ms</span>
+                <span className="tiny">typical answer</span>
               </div>
               <div className="hero-meta-item">
                 <span className="hero-meta-value">0</span>
