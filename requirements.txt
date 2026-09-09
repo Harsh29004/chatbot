@@ -1,3 +1,8 @@
+# MongoDB. The sync driver, not motor: every store is called from a worker
+# thread via asyncio.to_thread already, and mixing an async driver into that
+# would mean two concurrency models in one request path.
+pymongo>=4.6
+
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 chromadb>=0.5.0
@@ -5,15 +10,35 @@ langgraph>=0.2.0
 langchain-core>=0.3.0
 pandas>=2.2.0
 openpyxl>=3.1.0
+
+# FastAPI needs this to accept the uploaded FAQ file at all — without it the
+# upload endpoint raises at request time rather than at import time.
+python-multipart>=0.0.9
+
+# The importer reads these formats when the optional reader is installed and
+# says so plainly when it isn't, so none of them is required to run:
+#   pypdf   -> .pdf        pyarrow -> .parquet
+#   xlrd    -> legacy .xls odfpy   -> .ods
 pydantic>=2.7.0
 email-validator>=2.1.0
 python-dotenv>=1.0.0
+
+# Google sign-in. Present transitively via chromadb, but pinned explicitly
+# because backend/billing/google_oauth.py depends on it directly — and it is
+# what verifies the ID token's signature against Google's JWKS rather than
+# trusting a decoded payload.
+google-auth>=2.30.0
 sentence-transformers>=3.0.0
 
 # langgraph-sdk imports websockets.asyncio (added in 13) and caps at <16
 websockets>=14,<16
 
 # Testing
+# mongomock stands in for a server so the suite runs on a laptop with nothing
+# installed. It is a real test double, not the real thing: no transactions and
+# partial aggregation support, which is why the stores avoid pipelines that
+# only a live deployment can run.
+mongomock>=4.1
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
 # httpx 0.28 removed the TestClient `app=` shortcut that starlette still uses

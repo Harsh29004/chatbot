@@ -30,12 +30,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# Point the log database at a throwaway file *before* anything imports config.
-# Every declined query writes an unmatched-question row, and a benchmark run
-# would otherwise dump 15 fake gaps into the real customer-facing gap list.
-import shared.config as _config  # noqa: E402
+# Point storage at a throwaway in-memory database *before* anything writes to
+# it. Every declined query writes an unmatched-question row, and a benchmark
+# run would otherwise dump 15 fake gaps into the real customer-facing gap list.
+import backend.shared.config as _config  # noqa: E402
+import mongomock  # noqa: E402
 
-_config.SQLITE_DB_PATH = str(Path(tempfile.mkdtemp(prefix="nexora-bench-")) / "bench.db")
+from backend.shared import mongo as _mongo  # noqa: E402
+
+_mongo.reset_client(mongomock.MongoClient())
 
 BENCH_COLLECTION = "benchmark_index"
 TEMPLATE_ID = "ecommerce"
@@ -96,7 +99,7 @@ QUERIES = {
 # ── Step-level timing wrappers ───────────────────────────────────────────
 
 def time_guardrails(query: str) -> tuple[dict, float]:
-    from shared.guardrails import detect_action_intent, detect_injection
+    from backend.shared.guardrails import detect_action_intent, detect_injection
 
     start = time.perf_counter()
     injection = detect_injection(query)
@@ -106,7 +109,7 @@ def time_guardrails(query: str) -> tuple[dict, float]:
 
 
 def time_embedding(query: str) -> tuple[list[float], float]:
-    from shared.embeddings import embed_text
+    from backend.shared.embeddings import embed_text
 
     start = time.perf_counter()
     embedding = embed_text(query)
@@ -115,7 +118,7 @@ def time_embedding(query: str) -> tuple[list[float], float]:
 
 
 def time_retrieval(collection_name: str, embedding: list[float], k: int = 3):
-    from shared.vector_store import get_collection, query_collection
+    from backend.shared.vector_store import get_collection, query_collection
 
     collection = get_collection(collection_name)
     start = time.perf_counter()
@@ -169,12 +172,12 @@ def run_benchmark() -> None:
 
     print("\n  Initializing...")
 
-    from shared.logging_store import init_db
+    from backend.shared.logging_store import init_db
     init_db()
 
-    from apps.bot_engine.graph import BotConfig, build_graph
-    from apps.bot_engine.ingest import ingest_sheet
-    from apps.bot_engine.templates import get_template
+    from bot.graph import BotConfig, build_graph
+    from bot.ingest import ingest_sheet
+    from bot.templates import get_template
 
     template = get_template(TEMPLATE_ID)
 
@@ -186,7 +189,7 @@ def run_benchmark() -> None:
     # loads it from disk and would otherwise be charged to ingestion.
     print("  Warming up embedding model...")
     t0 = time.perf_counter()
-    from shared.embeddings import embed_text
+    from backend.shared.embeddings import embed_text
     embed_text("warmup query")
     model_load_time = time.perf_counter() - t0
     print(f"  Model loaded in {ms(model_load_time)}")

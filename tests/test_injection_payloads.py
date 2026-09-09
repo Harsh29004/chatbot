@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from shared.guardrails import detect_injection
+from backend.shared.guardrails import detect_injection
 
 
 INJECTION_PAYLOADS = [

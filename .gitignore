@@ -14,13 +14,16 @@ env/
 # ChromaDB data
 chroma_data/
 
-# SQLite logs
+# Local database files and log dirs, from before the move to MongoDB
 logs/
 
-# Web app
-web/node_modules/
-web/dist/
-web/.vite/
+# Build/export archives. final.zip was 129 MB, which GitHub refuses outright.
+*.zip
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
 
 # IDE
 .vscode/
@@ -31,4 +34,4 @@ web/.vite/
 Thumbs.db
 
 # TS build cache
-web/*.tsbuildinfo
+frontend/*.tsbuildinfo

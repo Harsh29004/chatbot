@@ -95,7 +95,7 @@ def test_an_action_phrased_alternate_still_declines(demo_graph, demo_template):
 
 def _graph_with_thresholds(bot, template, *, strong: float, near: float):
     """The demo bot's own collection, re-read at a chosen confidence band."""
-    from apps.bot_engine.graph import BotConfig, build_graph
+    from bot.graph import BotConfig, build_graph
 
     return build_graph(
         BotConfig(

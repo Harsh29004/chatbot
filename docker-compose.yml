@@ -1,15 +1,63 @@
+# ---------------------------------------------------------------------------
+# Nexora AI — the whole product on one machine.
+#
+# Sized for an Oracle Cloud Always Free ARM instance (2 OCPU / 12 GB), which is
+# the deployment this is tuned for. Memory limits are set explicitly and add up
+# to ~10 GB, leaving the OS its share: without them the kernel picks what to
+# kill when Ollama loads a model, and it will not pick the thing you would.
+#
+# See DEPLOY.md for provisioning the box and pulling the model.
+# ---------------------------------------------------------------------------
+
 services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    # Deliberately no `ports:` — nothing outside this compose network should be
+    # able to reach an unauthenticated model server. The app talks to it over
+    # the internal network by service name.
+    expose:
+      - "11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      # Keep the model resident. Reloading 4.7 GB from disk on two ARM cores
+      # takes tens of seconds, and on a low-traffic app almost every request
+      # would pay it. The cost is that the RAM stays committed — which is why
+      # the limits below are explicit.
+      - OLLAMA_KEEP_ALIVE=-1
+      # One model, one generation at a time. Two concurrent generations on this
+      # hardware don't run in parallel in any useful sense; they just make both
+      # slower and double the peak memory.
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_NUM_PARALLEL=1
+    mem_limit: 7g
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   nexora:
     build: .
+    restart: unless-stopped
+    depends_on:
+      - ollama
     ports:
       - "8000:8000"
+    mem_limit: 3g
     environment:
       # Secrets — set these in a .env file next to this compose file.
       - ADMIN_API_KEY=${ADMIN_API_KEY:?set ADMIN_API_KEY before starting}
 
-      # Data lives on named volumes, not in the image.
+      # Vectors live on a named volume; everything else lives in MongoDB,
+      # which is a managed cluster rather than a container here — a database
+      # holding customers and payments should not share a lifecycle with the
+      # app image.
       - CHROMA_PERSIST_DIR=/app/data/chroma
-      - SQLITE_DB_PATH=/app/data/logs/nexora.db
+      - MONGO_URI=${MONGO_URI:?set MONGO_URI before starting}
+      - MONGO_DB_NAME=${MONGO_DB_NAME:-nexora}
 
       # The SPA is served from this same origin in the container, so the
       # browser origin is whatever the site is published at.
@@ -27,11 +75,28 @@ services:
       - BILLING_COOKIE_SECURE=${BILLING_COOKIE_SECURE:-false}
       - PAID_DAILY_CREDITS=${PAID_DAILY_CREDITS:-5000}
       - DAILY_CREDIT_LIMIT=${DAILY_CREDIT_LIMIT:-250}
+
+      # Google sign-in. Blank means password-only; the button hides itself.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/auth/google/callback}
+
+      # The local model. Reached by service name over the compose network.
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+
+      # Grounded rewording for customer bots. Off unless you turn it on, and
+      # each bot still opts in separately from its dashboard.
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_MIN_GROUNDEDNESS=${LLM_MIN_GROUNDEDNESS:-0.72}
+
+      # The dashboard assistant. Website-only; no API key can reach it.
+      - ASSISTANT_ENABLED=${ASSISTANT_ENABLED:-false}
+      - ASSISTANT_DAILY_MESSAGES=${ASSISTANT_DAILY_MESSAGES:-100}
+      - ASSISTANT_CONCURRENCY=${ASSISTANT_CONCURRENCY:-1}
     volumes:
       - chroma-data:/app/data/chroma
-      - sqlite-data:/app/data/logs
-    restart: unless-stopped
 
 volumes:
   chroma-data:
-  sqlite-data:
+  ollama-models:

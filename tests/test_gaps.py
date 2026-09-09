@@ -8,7 +8,7 @@ scoping tests here matter more than the formatting ones.
 
 from __future__ import annotations
 
-from shared.logging_store import (
+from backend.shared.logging_store import (
     count_flagged_inputs,
     get_gap_summary,
     log_query,
@@ -131,13 +131,12 @@ def test_a_missing_score_does_not_break_the_summary():
 def test_older_misses_fall_outside_the_window():
     from datetime import datetime, timedelta, timezone
 
-    from shared.logging_store import _get_conn
+    from backend.shared.logging_store import COLLECTION
+    from backend.shared.mongo import coll
 
     _miss("bot:1", "ancient question")
     long_ago = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
-    conn = _get_conn()
-    conn.execute("UPDATE unmatched_queries SET timestamp = ?", (long_ago,))
-    conn.commit()
+    coll(COLLECTION).update_many({}, {"$set": {"timestamp": long_ago}})
 
     assert get_gap_summary("bot:1", days=30) == []
     assert len(get_gap_summary("bot:1", days=365)) == 1

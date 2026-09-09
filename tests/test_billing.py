@@ -11,24 +11,21 @@ from __future__ import annotations
 
 import pytest
 
-from apps.billing import db, entitlements, plans
-from apps.billing.security import (
+from backend.shared.mongo import coll, to_object_id
+from backend.billing import db, entitlements, plans
+from backend.billing.security import (
     generate_session_token,
     hash_password,
     hash_session_token,
     verify_password,
 )
-from shared import api_keys as ak
+from backend.shared import api_keys as ak
 
 
 @pytest.fixture(autouse=True)
 def _billing_tables():
-    """The api-key tables come from conftest; billing tables are ours."""
+    """conftest hands every test a fresh database; nothing to build or clear."""
     db.init_billing_tables()
-    # Thread-local connections are per-test-path, so drop the cached handle.
-    yield
-    if hasattr(db._LOCAL, "billing_conn"):
-        del db._LOCAL.billing_conn
 
 
 def _customer(email: str = "c@example.com", name: str = "C"):
@@ -115,7 +112,7 @@ def test_dead_sessions_are_purged_but_live_ones_survive():
     """
     from datetime import datetime, timedelta
 
-    from shared import config
+    from backend.shared import config
 
     customer = _customer("purge@example.com")
 
@@ -125,12 +122,10 @@ def test_dead_sessions_are_purged_but_live_ones_survive():
     stale = generate_session_token()
     db.create_session(customer["id"], stale)
     long_ago = (datetime.now(config.IST) - timedelta(days=30)).isoformat()
-    conn = db._get_conn()
-    conn.execute(
-        "UPDATE sessions SET expires_at = ? WHERE token_hash = ?",
-        (long_ago, hash_session_token(stale)),
+    coll(db.SESSIONS).update_one(
+        {"token_hash": hash_session_token(stale)},
+        {"$set": {"expires_at": long_ago}},
     )
-    conn.commit()
 
     assert db.purge_dead_sessions() == 1
     assert db.get_session_customer(live) is not None, "live session was purged!"
@@ -177,15 +172,13 @@ def _lapse(subscription_id: int) -> None:
     """Rewind a subscription's period end so it counts as lapsed."""
     from datetime import datetime, timedelta
 
-    from shared import config
+    from backend.shared import config
 
     past = (datetime.now(config.IST) - timedelta(days=1)).isoformat()
-    conn = db._get_conn()
-    conn.execute(
-        "UPDATE subscriptions SET current_period_end = ? WHERE id = ?",
-        (past, subscription_id),
+    coll(db.SUBSCRIPTIONS).update_one(
+        {"_id": to_object_id(subscription_id)},
+        {"$set": {"current_period_end": past}},
     )
-    conn.commit()
 
 
 def test_lapsed_subscription_is_expired_and_stops_entitling():
@@ -249,7 +242,7 @@ def test_a_lapsed_customer_keeps_their_key_but_on_the_free_allowance():
     card expired should find their bot rate-limited, not returning 403 to
     their users.
     """
-    from shared.config import DAILY_CREDIT_LIMIT
+    from backend.shared.config import DAILY_CREDIT_LIMIT
 
     email = "throttled@example.com"
     customer = _customer(email, "Throttled")
@@ -348,7 +341,7 @@ def test_dropping_the_allowance_restores_the_default():
     user = ak.get_user_by_email("reset@example.com")
     assert user["daily_credit_limit"] is None
 
-    from shared.config import DAILY_CREDIT_LIMIT
+    from backend.shared.config import DAILY_CREDIT_LIMIT
 
     assert ak.get_credits_remaining(user["id"], None) == DAILY_CREDIT_LIMIT
 
@@ -428,11 +421,7 @@ def test_owner_usage_is_logged_without_spending_credits():
     ak.record_request(record["user_id"], record["id"], "/v1/ask", message_len=42)
 
     # Logged...
-    conn = ak._get_conn()
-    row = conn.execute(
-        "SELECT endpoint, message_len, credit_cost FROM request_log WHERE user_id = ?",
-        (record["user_id"],),
-    ).fetchone()
+    row = coll("request_log").find_one({"user_id": to_object_id(record["user_id"])})
     assert row["endpoint"] == "/v1/ask"
     assert row["message_len"] == 42
     assert row["credit_cost"] == 0
@@ -447,7 +436,7 @@ def test_owner_usage_is_logged_without_spending_credits():
 
 def test_manual_activation_is_off_unless_explicitly_enabled(monkeypatch):
     """The unpaid-activation path needs both switches thrown."""
-    import apps.billing.payments as payments
+    import backend.billing.payments as payments
 
     monkeypatch.setattr(payments, "BILLING_PROVIDER", "manual")
     monkeypatch.setattr(payments, "BILLING_ALLOW_MANUAL", False)
@@ -462,7 +451,7 @@ def test_manual_activation_is_off_unless_explicitly_enabled(monkeypatch):
 
 
 def test_unconfigured_real_provider_refuses_rather_than_granting_access():
-    from apps.billing.payments import StripeProvider
+    from backend.billing.payments import StripeProvider
 
     with pytest.raises(NotImplementedError):
         StripeProvider().create_checkout(

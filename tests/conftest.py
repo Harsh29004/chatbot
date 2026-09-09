@@ -145,55 +145,63 @@ def demo_sheet_bytes() -> bytes:
     return buffer.getvalue().encode()
 
 
+def fake_id(n: int) -> str:
+    """
+    A deterministic ObjectId-shaped string for a small integer.
+
+    Tests that never touch the database still need ids that *look* like ids —
+    ``fake_id(1)`` and ``fake_id(2)`` are distinct, stable across runs, and
+    valid ObjectIds, so a test can fabricate a customer without creating one.
+    """
+    return f"{n:024x}"
+
+
 # ---------------------------------------------------------------------------
 # Isolation
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
 def _temp_dirs(tmp_path: Path, monkeypatch):
-    """Redirect ChromaDB and SQLite to temp directories for test isolation."""
+    """
+    Give every test its own empty MongoDB and Chroma directory.
+
+    ``mongomock`` rather than a live server: the suite has to run on a laptop
+    with nothing installed and in CI with no cluster. It is a genuine test
+    double and not the real thing — it does not do transactions, and its
+    aggregation support is partial — which is exactly why the stores were
+    written with plain queries and Python-side joins rather than pipelines
+    only a real deployment can run.
+    """
+    import mongomock
+
     chroma_dir = tmp_path / "chroma"
     chroma_dir.mkdir()
-    sqlite_path = tmp_path / "test.db"
+    monkeypatch.setattr("backend.shared.config.CHROMA_PERSIST_DIR", str(chroma_dir))
 
-    monkeypatch.setattr("shared.config.CHROMA_PERSIST_DIR", str(chroma_dir))
-    monkeypatch.setattr("shared.config.SQLITE_DB_PATH", str(sqlite_path))
+    from backend.shared import mongo
 
-    # Clear thread-local SQLite connections so they pick up the new path.
-    import shared.logging_store as ls
-    if hasattr(ls._LOCAL, "conn"):
-        del ls._LOCAL.conn
+    mongo.reset_client(mongomock.MongoClient())
+    # Applied per test because each one gets a fresh database, and the unique
+    # indexes are what several of them are actually asserting on.
+    mongo.ensure_indexes()
 
-    import shared.api_keys as ak
-    if hasattr(ak._LOCAL, "api_conn"):
-        del ak._LOCAL.api_conn
+    yield
 
-    from apps.billing import db as billing_db
-    if hasattr(billing_db._LOCAL, "billing_conn"):
-        del billing_db._LOCAL.billing_conn
-
-    from apps.bot_engine import store
-    if hasattr(store._LOCAL, "bots_conn"):
-        del store._LOCAL.bots_conn
-
-    ls.init_db()
-    ak.init_api_key_tables()
-    billing_db.init_billing_tables()
-    store.init_bot_tables()
+    mongo.reset_client(None)
 
 
 @pytest.fixture(autouse=True)
 def _mock_embeddings(monkeypatch):
     """Patch embedding calls to use deterministic mock embeddings.
 
-    Both the source module and the modules that did ``from shared.embeddings
+    Both the source module and the modules that did ``from backend.shared.embeddings
     import ...`` need patching, because that form creates a local binding the
     source-module patch won't reach.
     """
-    monkeypatch.setattr("shared.embeddings.embed_text", _mock_embed_text)
-    monkeypatch.setattr("shared.embeddings.embed_batch", _mock_embed_batch)
-    monkeypatch.setattr("apps.bot_engine.graph.embed_text", _mock_embed_text)
-    monkeypatch.setattr("apps.bot_engine.ingest.embed_batch", _mock_embed_batch)
+    monkeypatch.setattr("backend.shared.embeddings.embed_text", _mock_embed_text)
+    monkeypatch.setattr("backend.shared.embeddings.embed_batch", _mock_embed_batch)
+    monkeypatch.setattr("bot.graph.embed_text", _mock_embed_text)
+    monkeypatch.setattr("bot.ingest.embed_batch", _mock_embed_batch)
 
 
 # ---------------------------------------------------------------------------
@@ -207,10 +215,10 @@ def demo_bot() -> dict[str, Any]:
 
     Returns the bot record, plus ``user_id`` and ``template`` for convenience.
     """
-    from apps.bot_engine import store
-    from apps.bot_engine.ingest import ingest_sheet
-    from apps.bot_engine.templates import get_template
-    from shared.api_keys import get_user_by_email, set_daily_credit_limit
+    from bot import store
+    from bot.ingest import ingest_sheet
+    from bot.templates import get_template
+    from backend.shared.api_keys import get_user_by_email, set_daily_credit_limit
 
     set_daily_credit_limit(DEMO_EMAIL, None, name="Demo Shop")
     user = get_user_by_email(DEMO_EMAIL)
@@ -241,7 +249,7 @@ def demo_bot() -> dict[str, Any]:
 @pytest.fixture()
 def demo_graph(demo_bot):
     """A compiled graph for the demo bot, invoked directly (no HTTP)."""
-    from apps.bot_engine.graph import BotConfig, build_graph
+    from bot.graph import BotConfig, build_graph
 
     template = demo_bot["template"]
     return build_graph(
@@ -276,12 +284,12 @@ def api_client(demo_bot) -> TestClient:
     dependency is replaced so tests exercise the bot, not the billing path
     (which has its own tests).
     """
-    from server import app
-    from shared.auth import verify_api_key
+    from backend.server import app
+    from backend.shared.auth import verify_api_key
 
     async def _fake_api_key():
         return {
-            "id": 1,
+            "id": fake_id(1),
             "user_id": demo_bot["user_id"],
             "owner_email": DEMO_EMAIL,
             "role": "user",

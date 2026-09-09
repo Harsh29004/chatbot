@@ -14,10 +14,10 @@ import io
 
 import pytest
 
-from apps.bot_engine.graph import BotConfig, build_graph
-from apps.bot_engine.ingest import ingest_sheet
-from apps.bot_engine.templates import get_template
-from shared.logging_store import get_all_logs
+from bot.graph import BotConfig, build_graph
+from bot.ingest import ingest_sheet
+from bot.templates import get_template
+from backend.shared.logging_store import get_all_logs
 
 OUT_OF_SCOPE_QUERIES = [
     "What's the weather today?",

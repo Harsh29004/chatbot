@@ -17,9 +17,9 @@ logs/
 chroma_data/
 
 # Built and installed artefacts (the image builds its own)
-web/node_modules/
-web/dist/
-web/*.tsbuildinfo
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
 
 .vscode/
 .idea/

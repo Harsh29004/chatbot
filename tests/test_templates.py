@@ -11,10 +11,10 @@ import io
 
 import pytest
 
-from apps.bot_engine import store
-from apps.bot_engine.graph import BotConfig, build_graph
-from apps.bot_engine.ingest import MAX_ROWS, SheetError, ingest_sheet
-from apps.bot_engine.templates import (
+from bot import store
+from bot.graph import BotConfig, build_graph
+from bot.ingest import MAX_ROWS, SheetError, ingest_sheet
+from bot.templates import (
     DEFAULT_TEMPLATE_ID,
     REQUIRED_SHEET_COLUMNS,
     TEMPLATES,
@@ -22,15 +22,13 @@ from apps.bot_engine.templates import (
     list_templates,
     starter_sheet_rows,
 )
-from shared import api_keys as ak
+from backend.shared import api_keys as ak
 
 
 @pytest.fixture(autouse=True)
 def _bot_tables():
+    """conftest hands every test a fresh database; nothing to build or clear."""
     store.init_bot_tables()
-    yield
-    if hasattr(store._LOCAL, "bots_conn"):
-        del store._LOCAL.bots_conn
 
 
 def _csv_bytes(rows: list[list[str]]) -> bytes:
@@ -142,7 +140,8 @@ def test_minimal_sheet_needs_only_question_and_answer():
 
 
 def test_missing_required_column_is_rejected_with_a_useful_message():
-    data = _csv_bytes([["Question", "Reply"], ["Hi?", "Hello"]])
+    """A column we cannot read as an answer is named in the error, not guessed at."""
+    data = _csv_bytes([["Question", "Internal Notes"], ["Hi?", "spoke to Dana"]])
     with pytest.raises(SheetError) as exc:
         ingest_sheet(collection_name="test_bad", filename="a.csv", data=data)
     assert "Answer" in str(exc.value)
@@ -194,7 +193,8 @@ def test_oversized_sheet_is_rejected():
     assert str(MAX_ROWS) in str(exc.value)
 
 
-def test_unsupported_file_type_is_rejected():
+def test_a_file_we_cannot_read_fails_with_a_message_not_a_traceback():
+    """Whatever the parser throws, the customer sees a sentence."""
     with pytest.raises(SheetError):
         ingest_sheet(collection_name="test_pdf", filename="faq.pdf", data=b"%PDF-1.4")
 
@@ -221,7 +221,7 @@ def test_reupload_replaces_rather_than_merges():
 
     assert result.documents_indexed == 1
 
-    from shared.vector_store import get_collection
+    from backend.shared.vector_store import get_collection
 
     questions = {
         m["question"]
