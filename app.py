@@ -19,6 +19,17 @@ import chromadb
 import gradio as gr
 from sentence_transformers import SentenceTransformer
 
+# ZeroGPU support — available on HF Spaces, graceful fallback locally
+try:
+    import spaces
+except ImportError:
+    # Running locally without ZeroGPU — create a no-op decorator
+    class _Spaces:
+        @staticmethod
+        def GPU(fn=None, **kwargs):
+            return fn if fn else lambda f: f
+    spaces = _Spaces()
+
 # ---------------------------------------------------------------------------
 # Embedding model (loaded once at startup)
 # ---------------------------------------------------------------------------
@@ -361,6 +372,7 @@ print("Ready.")
 # The answer pipeline — retrieve and route on confidence
 # ---------------------------------------------------------------------------
 
+@spaces.GPU
 def _ask(template_id: str, query: str) -> tuple[str, str, float]:
     """
     Run the retrieval pipeline for a query.
