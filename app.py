@@ -42,6 +42,15 @@ def _embed(text: str) -> list[float]:
     return _model.encode(text, normalize_embeddings=True).tolist()
 
 
+# ZeroGPU requires at least one @spaces.GPU function to exist in the app, but
+# the retrieval path must NOT use it: every decorated call pays a GPU
+# allocation round-trip (tens of seconds) and MiniLM embeds a short query on
+# CPU in milliseconds. This placeholder exists only to satisfy the detector.
+@spaces.GPU(duration=1)
+def _zerogpu_placeholder():
+    return "ok"
+
+
 # ---------------------------------------------------------------------------
 # Templates — the ten verticals, with demo FAQ data
 # ---------------------------------------------------------------------------
@@ -372,7 +381,6 @@ print("Ready.")
 # The answer pipeline — retrieve and route on confidence
 # ---------------------------------------------------------------------------
 
-@spaces.GPU
 def _ask(template_id: str, query: str) -> tuple[str, str, float]:
     """
     Run the retrieval pipeline for a query.
