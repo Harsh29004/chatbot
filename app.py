@@ -408,10 +408,12 @@ def _ask(template_id: str, query: str) -> tuple[str, str, float]:
     if not results["documents"] or not results["documents"][0]:
         return tmpl.decline_message, "decline", 0.0
 
-    # ChromaDB cosine distance: 0 = identical, 2 = opposite
-    # Convert to similarity: 1 - (distance / 2)
+    # ChromaDB cosine distance is 1 - cosine_similarity, so similarity is
+    # simply 1 - distance. Dividing the distance by 2 first (the -1..1 range
+    # of raw cosine) squeezes every score into 0.5..1.0, which leaves an
+    # unrelated query scoring ~0.58 and tripping the 0.60 near threshold.
     distance = results["distances"][0][0]
-    confidence = 1.0 - (distance / 2.0)
+    confidence = max(0.0, 1.0 - distance)
     best_answer = results["documents"][0][0]
     matched_q = results["metadatas"][0][0].get("question", "")
 
