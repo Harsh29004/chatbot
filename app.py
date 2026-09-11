@@ -335,6 +335,29 @@ def _detect_action(text: str) -> bool:
     return bool(_ACTION_RE.search(text))
 
 
+# A greeting carries no question to retrieve against, so it scores as noise and
+# declines — which reads as a broken bot. Answer it directly instead, and use
+# the reply to point at what this template actually covers.
+_GREETINGS = frozenset({
+    "hi", "hii", "hiii", "hey", "heya", "hello", "helo", "hallo", "yo",
+    "hi there", "hey there", "hello there", "good morning", "good afternoon",
+    "good evening", "good day", "greetings", "howdy", "sup", "whats up",
+    "what's up", "how are you", "how r u", "anyone there", "are you there",
+    "hi bot", "hello bot", "namaste", "hola",
+})
+
+
+def _detect_greeting(text: str) -> bool:
+    """True only when the message is *nothing but* a greeting.
+
+    A substring check would swallow the real question in "hi, where is my
+    order?", so the whole normalised message has to be a greeting on its own.
+    """
+    cleaned = re.sub(r"[^a-z\s']", " ", text.lower())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned in _GREETINGS
+
+
 # ---------------------------------------------------------------------------
 # Vector store — one ChromaDB collection per template, in-memory
 # ---------------------------------------------------------------------------
@@ -389,6 +412,16 @@ def _ask(template_id: str, query: str) -> tuple[str, str, float]:
     """
     tmpl = TEMPLATES[template_id]
     col = _collections[template_id]
+
+    # Small talk, before the guardrails — a greeting is neither an attack nor
+    # an action request, and it should never reach retrieval.
+    if _detect_greeting(query):
+        return (
+            f"Hello! I can help with questions about {tmpl.scope_label}. "
+            "What would you like to know?",
+            "greeting 👋",
+            1.0,
+        )
 
     # Guardrails
     if _detect_injection(query):
