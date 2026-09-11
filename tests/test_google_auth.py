@@ -186,11 +186,26 @@ class TestAccountResolution:
 # The HTTP surface
 # ---------------------------------------------------------------------------
 
+@pytest.fixture()
+def unconfigured(monkeypatch):
+    """
+    Force Google sign-in off for this test.
+
+    These two cases assert what happens when the credentials are *absent*, so
+    they must not read whatever the developer happens to have in their .env.
+    Before this fixture they passed only on a machine that had never set up
+    Google, and failed the moment somebody did.
+    """
+    monkeypatch.setattr("backend.shared.config.GOOGLE_OAUTH_ENABLED", False)
+    monkeypatch.setattr("backend.shared.config.GOOGLE_CLIENT_ID", "")
+    monkeypatch.setattr("backend.shared.config.GOOGLE_CLIENT_SECRET", "")
+
+
 class TestRoutes:
-    def test_providers_reports_google_off_when_unconfigured(self, api_client):
+    def test_providers_reports_google_off_when_unconfigured(self, api_client, unconfigured):
         assert api_client.get("/api/auth/providers").json()["google"] is False
 
-    def test_starting_is_refused_when_unconfigured(self, api_client):
+    def test_starting_is_refused_when_unconfigured(self, api_client, unconfigured):
         """A button that 500s is worse than no button."""
         assert api_client.get("/api/auth/google", follow_redirects=False).status_code == 503
 

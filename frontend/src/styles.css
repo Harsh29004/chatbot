@@ -1980,3 +1980,109 @@ pre,
 
 .mb-3 { margin-bottom: var(--s3); }
 .ml-2 { margin-left: var(--s2); }
+
+/* --------------------------------------------------------------------------
+   The assistant bubble — the chat, reachable from any signed-in page
+   -------------------------------------------------------------------------- */
+
+.chat-fab {
+  position: fixed;
+  right: var(--s5);
+  bottom: var(--s5);
+  z-index: 60;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--line-bright);
+  background: var(--accent);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.chat-fab:hover { transform: translateY(-2px); }
+.chat-fab[data-open="true"] {
+  background: var(--surface-3);
+  color: var(--bone);
+  font-size: 16px;
+}
+
+.chat-panel {
+  position: fixed;
+  right: var(--s5);
+  /* Clear of the button, which stays visible so the panel can be dismissed
+     from the same place it was opened. */
+  bottom: calc(var(--s5) + 64px);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-width: calc(100vw - var(--s5) * 2);
+  height: 520px;
+  max-height: calc(100vh - var(--s5) * 2 - 64px);
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.chat-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.chat-panel-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bone);
+}
+
+.chat-panel-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.chat-panel-empty { margin: auto 0; text-align: center; }
+
+.chat-panel-error {
+  margin: 0 var(--s4);
+  font-size: 12px;
+}
+
+.chat-panel-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4) var(--s4);
+  border-top: 1px solid var(--line);
+}
+.chat-panel-compose .input { resize: none; }
+
+/* On a phone the panel is the screen. A 380px card floating over a 360px
+   viewport is worse than no widget at all. */
+@media (max-width: 560px) {
+  .chat-panel {
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 70vh;
+    max-height: 70vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .chat-fab { right: var(--s4); bottom: var(--s4); }
+}

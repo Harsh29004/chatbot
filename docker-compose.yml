@@ -45,7 +45,7 @@ services:
     depends_on:
       - ollama
     ports:
-      - "8000:8000"
+      - "8000:7860"
     mem_limit: 3g
     environment:
       # Secrets — set these in a .env file next to this compose file.

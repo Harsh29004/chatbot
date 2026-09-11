@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 
+import { ChatWidget } from "./components/ChatWidget";
 import { AuthProvider, RequireAuth } from "./lib/auth";
 import { SignIn, SignUp } from "./pages/Auth";
 import { CheckoutReturn } from "./pages/CheckoutReturn";
@@ -79,6 +80,9 @@ export default function App() {
         />
         <Route path="*" element={<Landing />} />
       </Routes>
+      {/* Outside <Routes> on purpose: it must survive navigation rather than
+          remount and drop the conversation every time a link is clicked. */}
+      <ChatWidget />
     </AuthProvider>
   );
 }
