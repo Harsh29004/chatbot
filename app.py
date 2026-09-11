@@ -516,6 +516,7 @@ with gr.Blocks(
             chatbot = gr.Chatbot(
                 height=520,
                 label="Chat with the demo bot",
+                type="messages",
                 avatar_images=(None, "https://em-content.zobj.net/source/twitter/376/robot_1f916.png"),
                 show_copy_button=True,
             )
@@ -547,11 +548,14 @@ with gr.Blocks(
         if not message.strip():
             return history, ""
         bot_response = chat_fn(message, history, template_id)
-        history = history + [(message, bot_response)]
+        history = history + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": bot_response},
+        ]
         return history, ""
 
     msg.submit(respond, [msg, chatbot, template_dd], [chatbot, msg])
     send_btn.click(respond, [msg, chatbot, template_dd], [chatbot, msg])
 
 
-demo.launch()
+demo.launch(ssr_mode=False)
