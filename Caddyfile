@@ -1,0 +1,26 @@
+# TLS and reverse proxy for Nexora AI.
+#
+# Caddy gets a Let's Encrypt certificate for SITE_DOMAIN on first boot and
+# renews it on its own. Nothing here needs editing — set SITE_DOMAIN in .env.
+#
+# Port 80 must be reachable from the internet or the ACME challenge fails and
+# you get no certificate. Caddy redirects it to 443 once the cert is issued.
+
+{$SITE_DOMAIN} {
+	reverse_proxy nexora:8000 {
+		# The dashboard assistant streams server-sent events. Without this the
+		# proxy buffers the whole answer and the user watches a spinner until
+		# the generation finishes instead of watching the text arrive.
+		flush_interval -1
+	}
+
+	encode gzip
+
+	header {
+		# The app is HTTPS-only once this is in front of it, and the session
+		# cookie is Secure, so committing to HSTS costs nothing.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}

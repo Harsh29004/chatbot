@@ -10,7 +10,12 @@
 # ---------------------------------------------------------------------------
 
 services:
+  # Opt-in. `docker compose up -d` leaves this stopped; bring it up with
+  # `docker compose --profile llm up -d` once you actually want the assistant
+  # and grounded rewording. The FAQ bot does not need it and never has — it
+  # answers from the vector index in ~18ms with no model in the path.
   ollama:
+    profiles: ["llm"]
     image: ollama/ollama:latest
     restart: unless-stopped
     # Deliberately no `ports:` — nothing outside this compose network should be
@@ -42,10 +47,12 @@ services:
   nexora:
     build: .
     restart: unless-stopped
-    depends_on:
-      - ollama
+    # Bound to loopback, not 0.0.0.0. Caddy terminates TLS and reaches this
+    # over the compose network by service name; the published port exists so
+    # you can curl it from an SSH session while debugging. Publishing it
+    # publicly would let anyone bypass TLS by asking for :8000 directly.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     mem_limit: 3g
     environment:
       # Secrets — set these in a .env file next to this compose file.
@@ -97,6 +104,28 @@ services:
     volumes:
       - chroma-data:/app/data/chroma
 
+  # TLS. Opt-in for the same reason as Ollama: on a laptop this would fight
+  # for ports 80 and 443 and fail to get a certificate. On the server it is
+  # the front door — `docker compose --profile tls up -d`.
+  #
+  # Certificates need port 80 reachable from the internet for the ACME
+  # challenge, so open 80 as well as 443 even though the site itself redirects.
+  caddy:
+    profiles: ["tls"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SITE_DOMAIN=${SITE_DOMAIN:?set SITE_DOMAIN before starting with the tls profile}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
   chroma-data:
   ollama-models:
+  caddy-data:
+  caddy-config:
