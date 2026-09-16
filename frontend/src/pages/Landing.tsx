@@ -24,6 +24,59 @@ const REQUEST_SAMPLE = [
   [{ text: "}" }],
 ];
 
+/* The strip under the hero.
+ *
+ * n8n-style landing pages put customer logos here. We do not have customers to
+ * name yet, and inventing them is the one thing this product is about not
+ * doing — so this names the sectors the templates cover and links to them.
+ * Same visual job, nothing claimed that is not true. */
+const TRUST = [
+  {
+    label: "E-commerce",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+        <path d="M3 4h2l2.5 11h10L20 7H6" />
+        <circle cx="9" cy="19" r="1.3" />
+        <circle cx="17" cy="19" r="1.3" />
+      </svg>
+    ),
+  },
+  {
+    label: "Healthcare",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    ),
+  },
+  {
+    label: "Fintech",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+        <path d="M3 9l9-5 9 5M5 9v9m14-9v9M3 19h18M9 9v9m6-9v9" />
+      </svg>
+    ),
+  },
+  {
+    label: "SaaS",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+        <path d="M7 17a4 4 0 010-8 5.5 5.5 0 0110.5 1.5A3.5 3.5 0 0117 17z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Logistics",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+        <path d="M3 7h11v10H3zM14 10h4l3 3v4h-7" />
+        <circle cx="7" cy="18" r="1.4" />
+        <circle cx="17.5" cy="18" r="1.4" />
+      </svg>
+    ),
+  },
+];
+
 const STEPS = [
   {
     n: "01",
@@ -72,49 +125,64 @@ export function Landing() {
     <Page>
       {/* ---------------------------------------------------------------- */}
       <section className="hero">
-        <div className="wrap hero-grid">
-          <div className="fade-up">
-            <p className="eyebrow">Retrieval-grounded support bots</p>
-            <h1 className="h-hero">
-              Answers from your sheet.
-              <br />
-              <span className="accent">Never invented.</span>
-            </h1>
-            <p className="lede mt-5">
-              Upload the FAQ you already wrote. Get an API key. Your app starts
-              answering support questions in one POST request — using your
-              approved wording, or saying nothing at all.
-            </p>
+        <div className="wrap">
+          <div className="hero-grid">
+            <div className="hero-copy fade-up">
+              <p className="eyebrow">Retrieval-grounded support bots</p>
+              <h1 className="h-hero">
+                Answers from your sheet.
+                <br />
+                <span className="line-2">Never invented.</span>
+              </h1>
 
-            <div className="hero-actions">
-              <button className="btn btn-primary" onClick={() => navigate("/signup")}>
-                Start free for 14 days
-              </button>
-              <a href="#how" className="btn btn-secondary">
-                See how it works
-              </a>
+              <div className="hero-actions">
+                <button className="btn btn-primary" onClick={() => navigate("/signup")}>
+                  Start free for 14 days
+                </button>
+                <a href="#how" className="btn btn-secondary">
+                  See how it works
+                </a>
+              </div>
+
+              <p className="lede mt-6">
+                Upload the FAQ you already wrote. Get an API key. Your app starts
+                answering support questions in one POST request — using your
+                approved wording, or saying nothing at all.
+              </p>
+
+              <div className="hero-meta">
+                <div className="hero-meta-item">
+                  <span className="hero-meta-value">18ms</span>
+                  <span className="tiny">typical answer</span>
+                </div>
+                <div className="hero-meta-item">
+                  <span className="hero-meta-value">0</span>
+                  <span className="tiny">hallucinated answers</span>
+                </div>
+                <div className="hero-meta-item">
+                  <span className="hero-meta-value">1</span>
+                  <span className="tiny">endpoint to integrate</span>
+                </div>
+              </div>
             </div>
 
-            <div className="hero-meta">
-              <div className="hero-meta-item">
-                <span className="hero-meta-value">18ms</span>
-                <span className="tiny">typical answer</span>
-              </div>
-              <div className="hero-meta-item">
-                <span className="hero-meta-value">0</span>
-                <span className="tiny">hallucinated answers</span>
-              </div>
-              <div className="hero-meta-item">
-                <span className="hero-meta-value">1</span>
-                <span className="tiny">endpoint to integrate</span>
-              </div>
+            <div className="hero-canvas">
+              <Suspense fallback={null}>
+                <HeroScene />
+              </Suspense>
             </div>
           </div>
 
-          <div className="hero-canvas">
-            <Suspense fallback={null}>
-              <HeroScene />
-            </Suspense>
+          <div className="trust">
+            <p className="trust-label">Grounded FAQ bots for teams in</p>
+            <div className="trust-marks">
+              {TRUST.map((mark) => (
+                <a href="#templates" className="trust-mark" key={mark.label}>
+                  {mark.icon}
+                  {mark.label}
+                </a>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -214,7 +282,7 @@ export function Landing() {
       </section>
 
       {/* ---------------------------------------------------------------- */}
-      <section className="section-tight">
+      <section className="section-tight" id="faq">
         <div className="wrap wrap-narrow">
           <p className="eyebrow eyebrow-muted">Questions</p>
           <h2 className="h-section mb-5">Before you sign up.</h2>
