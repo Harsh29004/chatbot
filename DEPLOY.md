@@ -98,8 +98,12 @@ Then **Connect → Drivers** and copy the `mongodb+srv://…` string.
 
 ## 6. Configure
 
+The repo routes images and fonts through Git LFS, so install it first or
+those files arrive as text pointers:
+
 ```bash
-git clone <your repo> nexora && cd nexora
+sudo apt install -y git-lfs && git lfs install
+git clone -b feature/billing-platform <your repo> nexora && cd nexora
 cp .env.example .env
 ```
 
