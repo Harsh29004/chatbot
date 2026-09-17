@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import Header, HTTPException, Request, Response, status
 
 from shared.api_keys import (
+    ROLE_OWNER,
     consume_credits,
     get_credits_remaining,
     get_next_reset_time,
@@ -30,9 +31,10 @@ async def verify_api_key(
     FastAPI dependency that validates an API key and checks credits.
 
     - Validates the key against the database
-    - Calculates credit cost from the request body's message length
-    - Checks if sufficient credits remain
-    - Deducts credits on success
+    - Owner-role keys (see ``shared.api_keys.create_owner_key``) skip credit
+      checks and deductions entirely — unlimited, for the product owners only
+    - Otherwise: calculates credit cost from the request body's message
+      length, checks the account's shared credit pool, and deducts on success
     - Injects ``X-Credits-Remaining``, ``X-Credits-Daily-Limit``,
       ``X-Credits-Reset-At``, and ``X-Credit-Cost`` into response headers
 
@@ -46,6 +48,13 @@ async def verify_api_key(
             detail="Invalid or revoked API key.",
         )
 
+    # Owner keys bypass credit checks entirely — unlimited access.
+    if key_record["role"] == ROLE_OWNER:
+        response.headers["X-Credits-Remaining"] = "unlimited"
+        response.headers["X-Credits-Daily-Limit"] = "unlimited"
+        response.headers["X-Credit-Cost"] = "0"
+        return key_record
+
     # Calculate credit cost from message length
     try:
         body = await request.json()
@@ -56,8 +65,10 @@ async def verify_api_key(
 
     credit_cost = get_credit_cost(message_len)
 
-    # Check credits
-    remaining = get_credits_remaining(key_record["id"])
+    # Check credits (pooled across all of this account's keys)
+    user_id = key_record["user_id"]
+    daily_limit = key_record["daily_credit_limit"]
+    remaining = get_credits_remaining(user_id, daily_limit)
     if remaining < credit_cost:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -76,12 +87,14 @@ async def verify_api_key(
     # Deduct credits
     endpoint = request.url.path
     new_remaining = consume_credits(
-        key_record["id"], credit_cost, endpoint, message_len
+        user_id, key_record["id"], credit_cost, endpoint, message_len
     )
 
     # Set response headers
     response.headers["X-Credits-Remaining"] = str(new_remaining)
-    response.headers["X-Credits-Daily-Limit"] = str(DAILY_CREDIT_LIMIT)
+    response.headers["X-Credits-Daily-Limit"] = str(
+        DAILY_CREDIT_LIMIT if daily_limit is None else daily_limit
+    )
     response.headers["X-Credits-Reset-At"] = get_next_reset_time()
     response.headers["X-Credit-Cost"] = str(credit_cost)
 
