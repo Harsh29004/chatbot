@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { Logo } from "../components/Chrome";
+import { AdminLogin } from "../components/admin/AdminLogin";
 import { AdminAi } from "../components/admin/AdminAi";
 import { AdminAudit } from "../components/admin/AdminAudit";
 import { AdminOverview } from "../components/admin/AdminOverview";
@@ -59,37 +60,26 @@ const WINDOWS = [7, 30, 90];
  */
 export function Admin() {
   const [adminKey, setAdminKey] = useState(readStoredKey);
-  const [draft, setDraft] = useState("");
   const [authed, setAuthed] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [tab, setTab] = useState<TabId>("overview");
   const [days, setDays] = useState(30);
 
   // Validate the key by making the cheapest real call, so a rotated key lands
   // on the gate rather than on eight empty panels.
+  // Throws when the token doesn't open the panel, so the sign-in form can
+  // show why.
   const unlock = async (candidate: string) => {
     const key = candidate.trim();
     if (!key) return;
-
-    setChecking(true);
-    setError(null);
+    await adminPanelApi.health(key);
     try {
-      await adminPanelApi.health(key);
-      try {
-        sessionStorage.setItem(KEY_STORAGE, key);
-      } catch {
-        // Not being able to remember it is survivable; being locked out is not.
-      }
-      setAdminKey(key);
-      setAuthed(true);
-      setDraft("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "That admin key was not accepted.");
-    } finally {
-      setChecking(false);
+      sessionStorage.setItem(KEY_STORAGE, key);
+    } catch {
+      // Not being able to remember it is survivable; being locked out is not.
     }
+    setAdminKey(key);
+    setAuthed(true);
   };
 
   const lock = () => {
@@ -102,47 +92,28 @@ export function Admin() {
     setAuthed(false);
   };
 
+  // A session saved earlier in this tab signs straight back in after a
+  // refresh; an expired one lands on the sign-in form instead.
+  useEffect(() => {
+    if (adminKey) unlock(adminKey).catch(lock);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!authed) {
     return (
-      <div className="admin-gate">
-        <div className="auth-card">
-          <Logo />
-          <h1 className="h-section mt-4">Admin panel</h1>
-          <p className="small muted mb-4">
-            Staff only. Paste the admin key — it&apos;s kept for this tab only, and
-            cleared when you close it.
-          </p>
-          <div className="field">
-            <label className="label" htmlFor="adminkey">
-              Admin key
-            </label>
-            <input
-              id="adminkey"
-              className="input"
-              type="password"
-              value={draft || adminKey}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && unlock(draft || adminKey)}
-              autoComplete="off"
-            />
-          </div>
-          {error && <p className="error-box mt-3">{error}</p>}
-          <button
-            className="btn btn-primary btn-block mt-4"
-            disabled={checking}
-            onClick={() => unlock(draft || adminKey)}
-          >
-            {checking ? "Checking…" : "Open panel"}
-          </button>
-          <p className="tiny mt-4 muted">
+      <AdminLogin
+        title="Admin panel"
+        onToken={unlock}
+        footer={
+          <>
             Looking for customer messages? That&apos;s the{" "}
             <Link to="/admin/support" className="accent">
               support inbox
             </Link>
             .
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
     );
   }
 

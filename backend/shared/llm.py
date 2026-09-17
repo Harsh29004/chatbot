@@ -37,11 +37,13 @@ import re
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Literal
 
 import httpx
 
 from backend.shared import config
+from backend.shared.mongo import coll, register_indexes
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +105,18 @@ _AVAILABILITY_TTL_SECONDS = 30.0
 _availability: tuple[bool, float] | None = None
 _availability_lock = threading.Lock()
 
-# target label -> monotonic time the cooldown ends
-_cooldowns: dict[str, float] = {}
+# Cooldowns live in MongoDB so every worker skips the same saturated model and
+# a restart doesn't forget it. A TTL index deletes them once they end. If
+# MongoDB itself is unreachable, this module must still work: it falls back to
+# a per-process dict rather than letting a database error stop generation.
+LLM_COOLDOWNS = "llm_cooldowns"
+
+register_indexes(
+    LLM_COOLDOWNS,
+    [([("until", 1)], {"name": "until_ttl", "expireAfterSeconds": 0})],
+)
+
+_fallback_cooldowns: dict[str, float] = {}  # label -> Unix time it ends
 _cooldown_lock = threading.Lock()
 
 # The model that produced the most recent successful answer, for display.
@@ -139,21 +151,31 @@ def _chain(first_ollama_model: str | None = None) -> list[Target]:
     return targets
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def _cooling(target: Target) -> bool:
-    with _cooldown_lock:
-        until = _cooldowns.get(target.label)
-        if until is None:
-            return False
-        if time.monotonic() >= until:
-            del _cooldowns[target.label]
-            return False
-        return True
+    try:
+        doc = coll(LLM_COOLDOWNS).find_one({"_id": target.label}, {"until": 1})
+        return bool(doc and doc["until"] > _utcnow())
+    except Exception:  # noqa: BLE001 - the database must never stop generation
+        with _cooldown_lock:
+            return _fallback_cooldowns.get(target.label, 0.0) > time.time()
 
 
 def _cool(target: Target, reason: str, seconds: float | None = None) -> None:
     seconds = seconds if seconds and seconds > 0 else config.LLM_COOLDOWN_SECONDS
-    with _cooldown_lock:
-        _cooldowns[target.label] = time.monotonic() + seconds
+    until = _utcnow() + timedelta(seconds=seconds)
+    try:
+        coll(LLM_COOLDOWNS).update_one(
+            {"_id": target.label},
+            {"$set": {"until": until, "reason": reason[:200]}},
+            upsert=True,
+        )
+    except Exception:  # noqa: BLE001 - see _cooling
+        with _cooldown_lock:
+            _fallback_cooldowns[target.label] = time.time() + seconds
     logger.warning("LLM %s unavailable (%s); skipping it for %.0fs.", target.label, reason, seconds)
 
 
@@ -528,4 +550,8 @@ def reset_availability_cache() -> None:
     _availability = None
     _last_used = None
     with _cooldown_lock:
-        _cooldowns.clear()
+        _fallback_cooldowns.clear()
+    try:
+        coll(LLM_COOLDOWNS).delete_many({})
+    except Exception:  # noqa: BLE001 - nothing to clear if the database is down
+        pass

@@ -57,12 +57,14 @@ services:
     environment:
       # Secrets — set these in a .env file next to this compose file.
       - ADMIN_API_KEY=${ADMIN_API_KEY:?set ADMIN_API_KEY before starting}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - ADMIN_SESSION_HOURS=${ADMIN_SESSION_HOURS:-12}
 
-      # Vectors live on a named volume; everything else lives in MongoDB,
-      # which is a managed cluster rather than a container here — a database
-      # holding customers and payments should not share a lifecycle with the
-      # app image.
-      - CHROMA_PERSIST_DIR=/app/data/chroma
+      # Everything is stored in MongoDB — accounts, billing, FAQ vectors,
+      # rate limits — on a managed cluster rather than in a container, so a
+      # database holding customers and payments doesn't share a lifecycle
+      # with the app image, and the app itself keeps no data on disk.
       - MONGO_URI=${MONGO_URI:?set MONGO_URI before starting}
       - MONGO_DB_NAME=${MONGO_DB_NAME:-nexora}
 
@@ -91,6 +93,8 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/auth/google/callback}
+      - GOOGLE_CLOCK_SKEW_SECONDS=${GOOGLE_CLOCK_SKEW_SECONDS:-30}
+      - GOOGLE_PROMPT=${GOOGLE_PROMPT:-select_account consent}
 
       # The local model. Reached by service name over the compose network.
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -120,8 +124,6 @@ services:
       - ASSISTANT_ENABLED=${ASSISTANT_ENABLED:-false}
       - ASSISTANT_DAILY_MESSAGES=${ASSISTANT_DAILY_MESSAGES:-100}
       - ASSISTANT_CONCURRENCY=${ASSISTANT_CONCURRENCY:-1}
-    volumes:
-      - chroma-data:/app/data/chroma
 
   # TLS. Opt-in for the same reason as Ollama: on a laptop this would fight
   # for ports 80 and 443 and fail to get a certificate. On the server it is
@@ -144,7 +146,6 @@ services:
       - caddy-config:/config
 
 volumes:
-  chroma-data:
   ollama-models:
   caddy-data:
   caddy-config:

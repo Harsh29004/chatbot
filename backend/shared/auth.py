@@ -8,6 +8,7 @@ API-key authentication and admin key verification.
 
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
 from fastapi import Header, HTTPException, Request, Response, status
@@ -167,10 +168,14 @@ def verify_admin_key(
     """
     FastAPI dependency for admin endpoints.
 
-    Expects an ``X-Admin-Key`` header matching the configured
-    ``ADMIN_API_KEY``.
+    Accepts either the configured ``ADMIN_API_KEY`` (for scripts) or an
+    unexpired session token from ``POST /api/admin/login`` (for the staff
+    pages), both in the ``X-Admin-Key`` header.
     """
-    if x_admin_key != ADMIN_API_KEY:
+    from backend.admin import session  # local: admin imports shared, not the reverse at load
+
+    key_ok = hmac.compare_digest(x_admin_key.encode(), ADMIN_API_KEY.encode())
+    if not key_ok and not session.verify_token(x_admin_key):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid admin API key.",

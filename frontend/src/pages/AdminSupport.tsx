@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Logo } from "../components/Chrome";
+import { AdminLogin } from "../components/admin/AdminLogin";
 import { adminApi, type SupportConversation, type SupportMessage } from "../lib/api";
 
 const POLL_MS = 5000;
@@ -34,7 +35,6 @@ function readStoredKey(): string {
  */
 export function AdminSupport() {
   const [key, setKey] = useState(readStoredKey);
-  const [keyDraft, setKeyDraft] = useState("");
   const [authed, setAuthed] = useState(false);
 
   const [conversations, setConversations] = useState<SupportConversation[]>([]);
@@ -79,28 +79,22 @@ export function AdminSupport() {
     refreshInbox(key)
       .then(() => setAuthed(true))
       .catch(() => {
+        // An expired session: back to the sign-in form, quietly.
         setAuthed(false);
-        setError("That admin key was not accepted.");
+        setKey("");
       });
   }, [key, refreshInbox]);
 
-  const signIn = async () => {
-    const candidate = keyDraft.trim();
-    if (!candidate) return;
+  const signIn = async (candidate: string) => {
     setError(null);
+    await refreshInbox(candidate);
     try {
-      await refreshInbox(candidate);
-      try {
-        sessionStorage.setItem(KEY_STORAGE, candidate);
-      } catch {
-        /* Storage can be unavailable; the key still works for this page load. */
-      }
-      setKey(candidate);
-      setAuthed(true);
-      setKeyDraft("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not sign in.");
+      sessionStorage.setItem(KEY_STORAGE, candidate);
+    } catch {
+      /* Storage can be unavailable; the session still works for this page load. */
     }
+    setKey(candidate);
+    setAuthed(true);
   };
 
   const signOut = () => {
@@ -193,36 +187,7 @@ export function AdminSupport() {
   };
 
   if (!authed) {
-    return (
-      <div className="admin-gate">
-        <div className="auth-card">
-          <Logo />
-          <h1 className="h-section mt-4">Support inbox</h1>
-          <p className="small muted mb-4">
-            Staff only. Paste the admin key — it&apos;s kept for this tab only, and
-            cleared when you close it.
-          </p>
-          <div className="field">
-            <label className="label" htmlFor="adminkey">
-              Admin key
-            </label>
-            <input
-              id="adminkey"
-              className="input"
-              type="password"
-              value={keyDraft}
-              onChange={(e) => setKeyDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && signIn()}
-              autoComplete="off"
-            />
-          </div>
-          {error && <p className="error-box mt-3">{error}</p>}
-          <button className="btn btn-primary btn-block mt-4" onClick={signIn}>
-            Open inbox
-          </button>
-        </div>
-      </div>
-    );
+    return <AdminLogin title="Support inbox" onToken={signIn} />;
   }
 
   const active = conversations.find((c) => c.id === activeId) ?? null;

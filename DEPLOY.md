@@ -8,9 +8,8 @@ That keeps the session cookie simple (`SameSite=Lax`, no cross-site setup) and
 means TLS only has to be set up once, in Caddy.
 
 ```
-internet ──443──▶ Caddy (TLS) ──▶ nexora container ──▶ MongoDB Atlas
+internet ──443──▶ Caddy (TLS) ──▶ nexora container ──▶ MongoDB Atlas (all data)
                                         │
-                                        ├──▶ chroma-data volume (vectors)
                                         └──▶ LLM chain: Ollama → Groq → Gemini (optional)
 ```
 
@@ -305,12 +304,11 @@ git pull
 docker compose --profile tls up -d --build    # add --profile llm if you use Ollama
 ```
 
-Data survives updates: accounts live in MongoDB, and vectors live in the
-`chroma-data` volume.
+Data survives updates: everything (accounts, FAQ vectors, support messages,
+rate limits) lives in MongoDB Atlas, not in the container.
 
-> ⚠️ **Never run `docker compose down -v`.** The `-v` deletes the volumes,
-> including every customer's indexed FAQ sheet. Plain `docker compose down` is
-> safe.
+> `docker compose down -v` only deletes local volumes (Caddy's certificates and
+> Ollama's downloaded models). Your data is safe, but you'd re-download those.
 
 Useful commands:
 
@@ -322,12 +320,17 @@ docker compose restart nexora      # restart the app only
 
 ## 12. Backups
 
-MongoDB Atlas handles the database. The vector store is yours to back up:
+All data is in MongoDB, so backing up the database backs up everything.
+
+- **Atlas:** paid tiers include automatic snapshots. On the free M0 tier, export
+  it yourself from any machine with the MongoDB Database Tools installed:
 
 ```bash
-docker run --rm -v nexora_chroma-data:/data -v $(pwd):/backup \
-  alpine tar czf /backup/chroma-$(date +%F).tar.gz -C /data .
+mongodump --uri "mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/nexora" \
+  --out backup-$(date +%F)
 ```
+
+Restore with `mongorestore --uri "<uri>" backup-YYYY-MM-DD`.
 
 Oracle reclaims **idle** Always Free instances (low CPU, network and memory
 over 7 days). A site with real traffic usually doesn't qualify, but keep
@@ -345,4 +348,5 @@ backups off the instance.
 | Widget installs but never connects | `PUBLIC_API_ORIGIN` unset or `http://`. Fix it, then download the package again |
 | Assistant says the model is unavailable | `ASSISTANT_ENABLED` not `true`, no provider keys set, or Ollama started without `--profile llm` |
 | A setting in `.env` has no effect | It isn't listed under `environment:` in `docker-compose.yml`, or the container wasn't recreated (`up -d`) |
-| All bots lost their answers after a restart | The `chroma-data` volume was deleted (`down -v`). Restore from a backup |
+| Bots answer "no indexed FAQ sheet" | The sheet was never uploaded to this database, or `MONGO_URI`/`MONGO_DB_NAME` points at a different database than before |
+| Atlas says the storage quota is full | FAQ vectors are the largest collection (`faq_vectors`). Remove unused bots or move off the 512 MB M0 tier |

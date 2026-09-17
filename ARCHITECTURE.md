@@ -62,7 +62,7 @@ Six files. This is the thing customers actually pay for.
 | `graph.py` | The LangGraph `StateGraph` — six nodes, two routing decisions | Nodes **close over** a frozen `BotConfig` rather than reading globals, so a clinic bot at 0.90 and a salon bot at 0.84 run side by side in one process. |
 | `readers.py` | Any uploaded file → a Question/Answer table. Spreadsheets, CSV/TSV, JSON, JSONL, YAML, XML, HTML, Markdown, text, Word, PDF, parquet, zip | The extension is a hint, not the truth — an unrecognised name is **sniffed from the bytes**, and anything that isn't a table is read as prose and mined for Q/A pairs. Column names go through an alias table so `prompt`/`completion` and `q`/`a` land on the canonical four. |
 | `ingest.py` | That table → vectors | Each phrasing becomes **its own vector**. The answer rides as metadata, never in the searchable text, so it comes back untouched. |
-| `store.py` | One bot per account — table keyed `user_id UNIQUE` | `collection_name_for(bot_id)` names each ChromaDB collection from the bot's id. Tenant isolation is structural, not a `WHERE` clause someone can forget. |
+| `store.py` | One bot per account — table keyed `user_id UNIQUE` | `collection_name_for(bot_id)` names each bot's vector collection from the bot's id. Tenant isolation is structural, not a `WHERE` clause someone can forget. |
 | `grounding.py` | The grounded prompt and, more importantly, the check on its output | The prompt is not the safeguard — the verification is. Ungrounded text and unsourced numbers are discarded and the verbatim answer is sent instead. |
 | `router.py` | Templates, starter sheet, upload, gaps, preview, the opt-in toggle, and `POST /v1/ask` | `/api/bot/preview` costs no credits — testing your own bot shouldn't bill you. |
 
@@ -193,7 +193,8 @@ index is a missing constraint, not a missing optimisation.
 | `auth.py` | `verify_api_key` / `verify_owner_key` / `verify_admin_key` | Three trust levels that never share a code path. The owner check is role-based, and refuses a valid customer key with the same message a garbage one gets. |
 | `guardrails.py` | Injection + action-intent detection | Asymmetric on purpose — see below. |
 | `embeddings.py` | sentence-transformers wrapper | Lazy thread-safe singleton. The model costs 10–15s to load, once. |
-| `vector_store.py` | ChromaDB helpers | Collection-scoped. There is no shared retrieval space to leak across. |
+| `vector_store.py` | FAQ vectors in MongoDB (`faq_vectors`, `vector_sets`) | Every query is filtered to one bot before scoring. Embeddings are normalised float32 bytes; search is one numpy dot product over the bot's vectors, cached per process and refreshed when `vector_sets` shows a newer version. A re-upload writes a new version, publishes it, then deletes the old one, so a question mid-upload is answered from the old sheet, never an empty one. |
+| `rate_limits.py` | Login lockout, signup cap, admin sign-in lockout | Sliding-window events in MongoDB (`rate_events`) with a TTL index, so limits survive restarts and every worker enforces the same count. |
 | `logging_store.py` | The unmatched-question log | This is the gap list — the loop that makes a bot get better. |
 | `input_policy.py` | What may reach the model, and what never may | Separate from `guardrails.py` on purpose, so the verbatim path keeps its original, gentler contract. |
 | `llm.py` | Model fallback chain in `LLM_PROVIDER_ORDER`: `OLLAMA_MODELS`, then `GROQ_MODELS`, then each of `GEMINI_MODELS` on every key in `GEMINI_API_KEYS` | A model that is rate limited, busy, missing or slow is benched for `LLM_COOLDOWN_SECONDS` and the next answers; an unreachable Ollama server benches all local models at once; a key the provider rejects is benched for every model (Google reports a bad key as 400, so the body is read). A stream switches model only before its first token. Every entry point still returns `None`, or an empty stream, rather than raising. **Groq and Gemini are hosted** — when they answer, the prompt has left the machine. |
@@ -367,7 +368,7 @@ instead of a separate host.
 | `tests/` | 406 tests across 13 files | **Deliberately not split per-folder.** They exercise backend and bot together — auth, retrieval and billing land in a single request. |
 | `benchmark.py` | Reproduces the performance numbers | Spans both halves. Points its database at a temp file so a run doesn't dump fake gaps into a real customer's gap list. |
 | `Dockerfile` | Node stage builds `frontend/`; Python stage copies `backend/` + `bot/` | One image, one origin — no CORS, no cross-site cookies. The embedding model is baked in so a cold container doesn't stall 15s on its first request. |
-| `chroma_data/`, `logs/` | Runtime data (~1.8 MB) | Gitignored. The container uses named volumes instead, so data never lives in the image. |
+| `chroma_data/`, `logs/` | Leftovers from before everything moved to MongoDB | Gitignored and no longer read. Safe to delete. |
 | `requirements.txt` | Dependencies | Two pins carry comments explaining *why* they're capped. |
 
 ---

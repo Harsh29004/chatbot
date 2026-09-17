@@ -81,10 +81,12 @@ def build_authorization_url() -> tuple[str, str]:
         "response_type": "code",
         "scope": " ".join(SCOPES),
         "state": state,
-        # Ask Google to show the account chooser rather than silently reusing
-        # whichever account the browser happens to be signed into. People have
-        # more than one Gmail and land in the wrong account otherwise.
-        "prompt": "select_account",
+        # "select_account" alone isn't enough: with one Google account in the
+        # browser and consent already given, Google skips the chooser and signs
+        # straight in, so the person never sees which account was used. Adding
+        # "consent" makes Google show its screens every time. GOOGLE_PROMPT can
+        # relax this (e.g. to "select_account").
+        "prompt": config.GOOGLE_PROMPT,
     }
     return f"{AUTH_ENDPOINT}?{urlencode(params)}", state
 
@@ -132,6 +134,7 @@ def exchange_code(code: str) -> dict[str, Any]:
             raw_id_token,
             google_requests.Request(),
             config.GOOGLE_CLIENT_ID,
+            clock_skew_in_seconds=config.GOOGLE_CLOCK_SKEW_SECONDS,
         )
     except ValueError as exc:
         logger.warning("Google ID token failed verification: %s", exc)

@@ -2,7 +2,7 @@
 Shared pytest fixtures.
 
 Provides:
-- Temporary ChromaDB directory and SQLite DB (auto-cleaned)
+- A fresh in-memory MongoDB per test (mongomock)
 - A mock embedding function (deterministic, no real model needed)
 - A demo bot — template + indexed sheet — standing in for a real customer's
 - FastAPI TestClient with API-key auth overridden
@@ -163,7 +163,7 @@ def fake_id(n: int) -> str:
 @pytest.fixture(autouse=True)
 def _temp_dirs(tmp_path: Path, monkeypatch):
     """
-    Give every test its own empty MongoDB and Chroma directory.
+    Give every test its own empty MongoDB (vectors and rate limits included).
 
     ``mongomock`` rather than a live server: the suite has to run on a laptop
     with nothing installed and in CI with no cluster. It is a genuine test
@@ -174,19 +174,19 @@ def _temp_dirs(tmp_path: Path, monkeypatch):
     """
     import mongomock
 
-    chroma_dir = tmp_path / "chroma"
-    chroma_dir.mkdir()
-    monkeypatch.setattr("backend.shared.config.CHROMA_PERSIST_DIR", str(chroma_dir))
-
-    from backend.shared import mongo
+    from backend.shared import mongo, vector_store
 
     mongo.reset_client(mongomock.MongoClient())
     # Applied per test because each one gets a fresh database, and the unique
     # indexes are what several of them are actually asserting on.
     mongo.ensure_indexes()
+    # Loaded vector matrices are cached per process; a new database must not
+    # be answered from the previous test's cache.
+    vector_store.clear_cache()
 
     yield
 
+    vector_store.clear_cache()
     mongo.reset_client(None)
 
 

@@ -1,13 +1,16 @@
 /**
- * The hero scene: a retrieval engine, drawn literally.
+ * The hero scene: the Nexora emblem, working.
  *
- * A faceted core (the FAQ index) sits inside three tilted rings. Message
- * cards ride those rings, and question particles stream inward and get
- * absorbed. It is a picture of what the product does, which is the only
- * reason to put 3D on a landing page at all.
+ * At the centre is the brand's own mark, lifted out of the wordmark's "O": a
+ * four-point star inside a brushed-silver ring, with the blue crescent sweeping
+ * around it and the outer halo with its two sparkles from the full logo.
+ * Message cards orbit it, and question sparks stream inward and are absorbed
+ * by the star. It is the same picture of what the product does, drawn in the
+ * brand's shapes instead of a generic globe.
  *
  * Performance notes:
  * - Particles are one InstancedMesh, not 60 draw calls.
+ * - The glow is a single additive sprite, not a post-processing pass.
  * - dpr is capped at 1.75; beyond that nothing here looks better.
  * - The whole thing freezes for prefers-reduced-motion and drops to a static
  *   render, so the page stays usable for anyone who gets motion sick.
@@ -21,8 +24,39 @@ import * as THREE from "three";
 // The brand logo's palette: electric blue, its cyan glow, brushed silver.
 const ACCENT = "#1f8fff";
 const MINT = "#5cc6ff";
+const SILVER = "#d6dde8";
 const CARD = "#121926";
 const LINE = "#2f3b52";
+
+/** The Nexora four-point star: long points, softly concave sides. */
+function starShape(size: number, pinch = 0.16): THREE.Shape {
+  const k = size * pinch;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, size);
+  shape.quadraticCurveTo(k, k, size, 0);
+  shape.quadraticCurveTo(k, -k, 0, -size);
+  shape.quadraticCurveTo(-k, -k, -size, 0);
+  shape.quadraticCurveTo(-k, k, 0, size);
+  return shape;
+}
+
+/** A soft radial glow, drawn once into a canvas and reused as a sprite. */
+function useGlowTexture(): THREE.Texture {
+  return useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext("2d")!;
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, "rgba(140, 210, 255, 1)");
+    g.addColorStop(0.25, "rgba(31, 143, 255, 0.55)");
+    g.addColorStop(1, "rgba(31, 143, 255, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }, []);
+}
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -37,42 +71,103 @@ function usePrefersReducedMotion(): boolean {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Core                                                                       */
+/* Emblem                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function Core({ still }: { still: boolean }) {
-  const wire = useRef<THREE.Mesh>(null);
-  const solid = useRef<THREE.Mesh>(null);
+function Emblem({ still }: { still: boolean }) {
+  const emblem = useRef<THREE.Group>(null);
+  const star = useRef<THREE.Mesh>(null);
+  const crescent = useRef<THREE.Mesh>(null);
+  const halo = useRef<THREE.Group>(null);
+  const glow = useRef<THREE.Sprite>(null);
+  const glowTexture = useGlowTexture();
 
-  useFrame((_, delta) => {
+  const starGeometry = useMemo(() => {
+    const geometry = new THREE.ExtrudeGeometry(starShape(0.62), {
+      depth: 0.1,
+      bevelEnabled: true,
+      bevelThickness: 0.05,
+      bevelSize: 0.035,
+      bevelSegments: 4,
+      curveSegments: 24,
+    });
+    geometry.center();
+    return geometry;
+  }, []);
+
+  const sparkGeometry = useMemo(() => new THREE.ShapeGeometry(starShape(0.11, 0.2), 12), []);
+
+  useFrame((state, delta) => {
     if (still) return;
-    if (wire.current) {
-      wire.current.rotation.y += delta * 0.18;
-      wire.current.rotation.x += delta * 0.06;
+    const t = state.clock.elapsedTime;
+    // The star turns in full 3D, so its bevels catch the light as it goes.
+    if (star.current) star.current.rotation.y += delta * 0.6;
+    // The crescent sweeps around inside the ring, like the swirl in the logo.
+    if (crescent.current) crescent.current.rotation.z -= delta * 0.9;
+    if (halo.current) halo.current.rotation.z += delta * 0.05;
+    // The whole emblem floats and sways a little.
+    if (emblem.current) {
+      emblem.current.position.y = Math.sin(t * 0.8) * 0.06;
+      emblem.current.rotation.x = Math.sin(t * 0.5) * 0.12;
+      emblem.current.rotation.y = Math.sin(t * 0.35) * 0.18;
     }
-    if (solid.current) {
-      solid.current.rotation.y -= delta * 0.1;
+    if (glow.current) {
+      const pulse = 3.1 + Math.sin(t * 1.6) * 0.18;
+      glow.current.scale.set(pulse, pulse, 1);
     }
   });
 
   return (
-    <group>
-      <mesh ref={wire}>
-        <icosahedronGeometry args={[1.15, 1]} />
-        <meshBasicMaterial color={ACCENT} wireframe transparent opacity={0.5} />
-      </mesh>
-      <mesh ref={solid}>
-        <icosahedronGeometry args={[0.62, 0]} />
+    <group ref={emblem}>
+      {/* Glow behind the star */}
+      <sprite ref={glow} scale={[3.1, 3.1, 1]} position={[0, 0, -0.3]}>
+        <spriteMaterial
+          map={glowTexture}
+          transparent
+          opacity={0.38}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </sprite>
+
+      {/* The star */}
+      <mesh ref={star} geometry={starGeometry}>
         <meshStandardMaterial
-          color="#15181d"
+          color="#9fd8ff"
           emissive={ACCENT}
-          emissiveIntensity={0.35}
-          flatShading
-          roughness={0.5}
-          metalness={0.2}
+          emissiveIntensity={0.42}
+          metalness={0.7}
+          roughness={0.18}
         />
       </mesh>
-      <pointLight position={[0, 0, 0]} color={ACCENT} intensity={7} distance={5} />
+
+      {/* The silver ring of the "O" */}
+      <mesh>
+        <torusGeometry args={[1.05, 0.11, 32, 160]} />
+        <meshStandardMaterial color={SILVER} metalness={0.75} roughness={0.28} />
+      </mesh>
+
+      {/* The blue crescent sweeping inside it */}
+      <mesh ref={crescent}>
+        <torusGeometry args={[0.84, 0.045, 16, 120, Math.PI * 0.85]} />
+        <meshStandardMaterial color={MINT} emissive={ACCENT} emissiveIntensity={1.4} toneMapped={false} />
+      </mesh>
+
+      {/* The outer halo with its two sparkles, from the full logo */}
+      <group ref={halo}>
+        <mesh>
+          <torusGeometry args={[1.55, 0.012, 8, 200]} />
+          <meshBasicMaterial color={ACCENT} transparent opacity={0.85} toneMapped={false} />
+        </mesh>
+        <mesh geometry={sparkGeometry} position={[1.55, 0, 0.01]}>
+          <meshBasicMaterial color={MINT} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh geometry={sparkGeometry} position={[-1.55, 0, 0.01]}>
+          <meshBasicMaterial color={MINT} toneMapped={false} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+
+      <pointLight position={[0, 0, 0.9]} color={ACCENT} intensity={6} distance={5} />
     </group>
   );
 }
@@ -98,8 +193,8 @@ function Ring({
   });
   return (
     <mesh ref={ref} rotation={tilt}>
-      <torusGeometry args={[radius, 0.004, 8, 128]} />
-      <meshBasicMaterial color={LINE} transparent opacity={0.75} />
+      <torusGeometry args={[radius, 0.004, 8, 160]} />
+      <meshBasicMaterial color={ACCENT} transparent opacity={0.28} />
     </mesh>
   );
 }
@@ -195,16 +290,18 @@ function Particles({ still }: { still: boolean }) {
       const seed = seeds[i];
       if (!still) {
         seed.t += delta * seed.speed;
-        if (seed.t > 1) seed.t -= 1; // absorbed by the core, respawn outside
+        if (seed.t > 1) seed.t -= 1; // absorbed by the star, respawn outside
       }
 
       // Travel from the outside in.
-      const distance = 3.4 - seed.t * 2.5;
+      const distance = 3.4 - seed.t * 3.1;
       dummy.position.copy(seed.dir).multiplyScalar(distance);
 
       // Shrink as they get close, so they read as being consumed.
       const scale = 0.035 * (0.35 + (1 - seed.t) * 0.65);
-      dummy.scale.setScalar(scale);
+      // Stretched into a thin spark rather than a round dot.
+      dummy.scale.set(scale, scale * 1.9, scale * 0.4);
+      dummy.rotation.z = seed.t * Math.PI * 2;
       dummy.updateMatrix();
       mesh.current.setMatrixAt(i, dummy.matrix);
     }
@@ -217,8 +314,8 @@ function Particles({ still }: { still: boolean }) {
       args={[undefined, undefined, PARTICLE_COUNT]}
       frustumCulled={false}
     >
-      <sphereGeometry args={[1, 8, 8]} />
-      <meshBasicMaterial color={MINT} transparent opacity={0.65} />
+      <octahedronGeometry args={[1, 0]} />
+      <meshBasicMaterial color={MINT} transparent opacity={0.8} toneMapped={false} />
     </instancedMesh>
   );
 }
@@ -232,11 +329,10 @@ function Scene({ still }: { still: boolean }) {
 
   const cards: CardSpec[] = useMemo(
     () => [
-      { radius: 1.9, speed: 0.24, offset: 0, y: 0.45, scale: 0.8, answered: true },
-      { radius: 2.25, speed: -0.18, offset: 2.1, y: -0.5, scale: 0.68, answered: false },
-      { radius: 1.7, speed: 0.3, offset: 4.0, y: -0.15, scale: 0.62, answered: true },
-      { radius: 2.45, speed: -0.14, offset: 5.4, y: 0.75, scale: 0.56, answered: false },
-      { radius: 2.1, speed: 0.2, offset: 3.1, y: -0.85, scale: 0.54, answered: true },
+      { radius: 2.0, speed: 0.22, offset: 0, y: 0.75, scale: 0.68, answered: true },
+      { radius: 2.2, speed: -0.17, offset: 2.1, y: -0.8, scale: 0.6, answered: false },
+      { radius: 1.9, speed: 0.27, offset: 4.0, y: -0.25, scale: 0.54, answered: true },
+      { radius: 2.3, speed: -0.13, offset: 5.4, y: 1.05, scale: 0.5, answered: false },
     ],
     [],
   );
@@ -252,16 +348,17 @@ function Scene({ still }: { still: boolean }) {
 
   return (
     <>
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[4, 5, 3]} intensity={1.1} />
-      <directionalLight position={[-5, -2, -3]} intensity={0.4} color={MINT} />
+      <ambientLight intensity={0.5} />
+      {/* A white key light and blue rim lights, so the silver reads as metal */}
+      <directionalLight position={[3, 4, 5]} intensity={2.2} color="#ffffff" />
+      <directionalLight position={[-4, -3, 2]} intensity={1.2} color={MINT} />
+      <directionalLight position={[0, 2, -5]} intensity={0.8} color={ACCENT} />
 
       <group ref={group}>
-        <Core still={still} />
+        <Emblem still={still} />
 
-        <Ring radius={1.75} tilt={[Math.PI / 2.4, 0.3, 0]} spin={0.08} still={still} />
-        <Ring radius={2.2} tilt={[Math.PI / 1.8, -0.4, 0.5]} spin={-0.06} still={still} />
-        <Ring radius={2.65} tilt={[Math.PI / 3, 0.9, 0.2]} spin={0.04} still={still} />
+        <Ring radius={2.2} tilt={[Math.PI / 2.3, 0.35, 0]} spin={0.08} still={still} />
+        <Ring radius={2.65} tilt={[Math.PI / 1.75, -0.45, 0.5]} spin={-0.05} still={still} />
 
         {cards.map((spec, i) => (
           <MessageCard key={i} spec={spec} still={still} />
@@ -306,7 +403,7 @@ export default function HeroScene() {
   return (
     <div ref={holder} style={{ width: "100%", height: "100%" }}>
       <Canvas
-        camera={{ position: [0, 0.6, 6.8], fov: 42 }}
+        camera={{ position: [0, 0.4, 7.2], fov: 42 }}
         dpr={[1, 1.75]}
         frameloop={frameloop}
         gl={{ antialias: true, alpha: true }}

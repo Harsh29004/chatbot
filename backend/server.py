@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.admin.login_router import router as admin_login_router
 from backend.admin.router import router as admin_router
 from backend.api_keys_router import router as keys_router
 from backend.billing import entitlements
@@ -204,6 +205,7 @@ app.include_router(keys_router)
 app.include_router(owner_router)
 app.include_router(assistant_router)
 app.include_router(support_router)
+app.include_router(admin_login_router)
 app.include_router(admin_router)
 
 

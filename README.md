@@ -48,7 +48,8 @@ question ──▶ guardrails ──▶ embed ──▶ search the customer's sh
 - **Optional rewording.** An owner can let an LLM rephrase near matches. The
   model only sees rows that retrieval already found, and its output is checked
   against those rows. If the check fails, the stored answer is sent instead.
-- **Isolated tenants.** Each bot has its own ChromaDB collection.
+- **Isolated tenants.** Each bot's vectors are stored and searched separately.
+- **One database.** Everything is stored in MongoDB: accounts, billing, FAQ vectors, support messages, rate limits. The app keeps nothing on local disk.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
 
@@ -190,8 +191,9 @@ ollama pull qwen2.5:3b && ollama pull llama3.2:3b && ollama pull gemma2:2b
 
 ## Running locally
 
-**Requirements:** Python 3.10+, Node 20+, and MongoDB (a local server or an Atlas
-cluster). Ollama and a Groq key are optional.
+**Requirements:** Python 3.10+, Node 20+, and MongoDB (an Atlas cluster or a
+local server). All data, including FAQ vectors, is stored there. Ollama and the
+Groq/Gemini keys are optional.
 
 ```bash
 # 1. Configure
@@ -231,7 +233,7 @@ pip install gradio && python app.py
 pytest
 ```
 
-The test suite needs no MongoDB, Ollama, Groq, Gemini or embedding model. It uses
+The test suite needs no MongoDB server, Ollama, Groq, Gemini or embedding model. It uses
 `mongomock`, deterministic fake embeddings, and a fake HTTP transport for LLM
 providers.
 

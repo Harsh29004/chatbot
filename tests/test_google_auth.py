@@ -86,12 +86,66 @@ class TestAuthorizationUrl:
         assert "scope=openid+email+profile" in url
         assert "access_type=offline" not in url
 
+    def test_it_always_shows_googles_screens_by_default(self, monkeypatch):
+        """
+        With one Google account in the browser, "select_account" alone let
+        Google sign straight in without showing anything.
+        """
+        monkeypatch.setattr(config, "GOOGLE_CLIENT_ID", "test-client-id")
+        url, _ = google_oauth.build_authorization_url()
+        assert "prompt=select_account+consent" in url
+
     def test_each_call_gets_a_fresh_state(self, monkeypatch):
         monkeypatch.setattr(config, "GOOGLE_CLIENT_ID", "test-client-id")
         _, first = google_oauth.build_authorization_url()
         _, second = google_oauth.build_authorization_url()
         assert first != second
         assert len(first) >= 32
+
+
+class TestTokenVerification:
+    def test_a_clock_a_second_behind_google_still_signs_in(self, monkeypatch):
+        """
+        With no allowance, a token Google issued one second "in the future"
+        by this machine's clock failed with "Token used too early". The
+        allowance is passed to the verifier; the signature check itself stays.
+        """
+        import httpx
+
+        monkeypatch.setattr(config, "GOOGLE_CLIENT_ID", "test-client-id")
+        monkeypatch.setattr(config, "GOOGLE_CLOCK_SKEW_SECONDS", 30)
+        monkeypatch.setattr(
+            google_oauth.httpx,
+            "post",
+            lambda *a, **k: httpx.Response(200, json={"id_token": "header.payload.sig"}),
+        )
+        seen = {}
+
+        def fake_verify(token, request, audience, clock_skew_in_seconds=0):
+            seen.update(token=token, audience=audience, skew=clock_skew_in_seconds)
+            return {"sub": "1", "email": "a@example.com", "email_verified": True}
+
+        monkeypatch.setattr(google_oauth.google_id_token, "verify_oauth2_token", fake_verify)
+
+        claims = google_oauth.exchange_code("code")
+        assert claims["sub"] == "1"
+        assert seen == {"token": "header.payload.sig", "audience": "test-client-id", "skew": 30}
+
+    def test_a_token_that_fails_verification_is_still_refused(self, monkeypatch):
+        import httpx
+
+        monkeypatch.setattr(
+            google_oauth.httpx,
+            "post",
+            lambda *a, **k: httpx.Response(200, json={"id_token": "header.payload.sig"}),
+        )
+
+        def reject(*a, **k):
+            raise ValueError("Could not verify token signature.")
+
+        monkeypatch.setattr(google_oauth.google_id_token, "verify_oauth2_token", reject)
+        with pytest.raises(google_oauth.OAuthError):
+            google_oauth.exchange_code("code")
 
 
 # ---------------------------------------------------------------------------

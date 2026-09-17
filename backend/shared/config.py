@@ -58,23 +58,10 @@ NEAR_MATCH_THRESHOLD: float = float(
 EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
 # ---------------------------------------------------------------------------
-# ChromaDB persistence
+# Vector storage
 # ---------------------------------------------------------------------------
-def _project_path(value: str) -> str:
-    # A relative path is taken from the project root, not the current
-    # directory. Otherwise starting the server from another folder (a systemd
-    # unit, a cron job, `cd backend && uvicorn ...`) silently opens an empty
-    # vector store somewhere else, and every bot looks like it lost its sheet.
-    path = Path(value).expanduser()
-    return str(path if path.is_absolute() else (PROJECT_ROOT / path).resolve())
-
-
-CHROMA_PERSIST_DIR: str = _project_path(
-    os.getenv("CHROMA_PERSIST_DIR", "chroma_data")
-)
-
-# Each bot's collection is named from its id (see bot/store.py),
-# so no two customers ever share retrieval space.
+# FAQ vectors are stored in MongoDB with everything else (backend.shared.
+# vector_store), so there is no separate data directory to configure or back up.
 
 # ---------------------------------------------------------------------------
 # Retrieval settings
@@ -94,6 +81,14 @@ MONGO_DB_NAME: str = os.getenv("MONGO_DB_NAME", "nexora")
 # Auth
 # ---------------------------------------------------------------------------
 ADMIN_API_KEY: str = os.getenv("ADMIN_API_KEY", "admin-change-me")
+
+# Username and password for the admin panel and support inbox. Signing in
+# returns a signed session token that expires after ADMIN_SESSION_HOURS. An
+# empty ADMIN_PASSWORD disables password sign-in; the admin key still works
+# for scripts.
+ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin").strip()
+ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
+ADMIN_SESSION_HOURS: float = float(os.getenv("ADMIN_SESSION_HOURS", "12"))
 
 # ---------------------------------------------------------------------------
 # Credit system
@@ -145,6 +140,17 @@ GOOGLE_OAUTH_ENABLED: bool = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 # How long a sign-in attempt may sit half-finished. This bounds the window in
 # which a stolen state cookie is worth anything.
 OAUTH_STATE_TTL_SECONDS: int = int(os.getenv("OAUTH_STATE_TTL_SECONDS", "600"))
+
+# How far this server's clock may drift from Google's when checking an ID
+# token's issued-at and expiry times. Zero rejects a token Google issued one
+# second "in the future" by our clock — which a laptop or VM a second behind
+# hits on every sign-in. Signature, issuer and audience are still checked.
+GOOGLE_CLOCK_SKEW_SECONDS: int = int(os.getenv("GOOGLE_CLOCK_SKEW_SECONDS", "30"))
+
+# Which Google screens to show on every sign-in. "select_account consent"
+# always shows the account chooser and the permission screen; "select_account"
+# lets Google skip both when the browser has one account that already agreed.
+GOOGLE_PROMPT: str = os.getenv("GOOGLE_PROMPT", "select_account consent").strip() or "select_account"
 
 # ---------------------------------------------------------------------------
 # Local LLM (Ollama) — optional, and off unless explicitly enabled

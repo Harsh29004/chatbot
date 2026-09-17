@@ -212,6 +212,9 @@ _INDEX_OWNING_MODULES = (
     "backend.support.store",
     "bot.store",
     "bot.catalogue",
+    "backend.shared.rate_limits",
+    "backend.shared.vector_store",
+    "backend.shared.llm",
 )
 
 

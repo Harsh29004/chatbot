@@ -14,8 +14,8 @@ from pydantic import BaseModel, EmailStr, Field
 class SignupRequest(BaseModel):
     email: EmailStr
     name: str = Field(default="", max_length=120)
-    # 12 chars is a deliberate floor: length beats character-class rules.
-    password: str = Field(..., min_length=12, max_length=200)
+    # Length beats character-class rules; 8 is the floor.
+    password: str = Field(..., min_length=8, max_length=200)
     # Optional and never validated here: a mistyped code costs the signup
     # nothing, it just goes unattributed.
     referral_code: str = Field(default="", max_length=32)

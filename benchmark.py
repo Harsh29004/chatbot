@@ -4,7 +4,7 @@ Performance benchmark for the Nexora AI answer pipeline.
 Measures each stage and the whole thing end to end:
   1. Guardrails (regex)
   2. Embedding (sentence-transformers, CPU)
-  3. ChromaDB retrieval
+  3. Vector retrieval (MongoDB)
   4. Score routing + response
 
 Runs against a representative shop FAQ indexed into a throwaway collection,
@@ -240,7 +240,7 @@ def run_benchmark() -> None:
     for emb in embeddings:
         _, t = time_retrieval(BENCH_COLLECTION, emb)
         retrieval_times.append(t)
-    print_stats("ChromaDB Retrieval", retrieval_times)
+    print_stats("Vector Retrieval", retrieval_times)
 
     # ── End to end ───────────────────────────────────────────────────────
     print_header("END-TO-END TIMING (full pipeline)")

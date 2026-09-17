@@ -11,7 +11,7 @@ import { Page } from "../components/Chrome";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
-const MIN_PASSWORD = 12;
+const MIN_PASSWORD = 8;
 
 /**
  * "Continue with Google", shown only when the server actually has credentials.
@@ -311,7 +311,7 @@ export function SignUp() {
             minLength={MIN_PASSWORD}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 12 characters"
+            placeholder={`At least ${MIN_PASSWORD} characters`}
             aria-describedby="pw-hint"
           />
           <span

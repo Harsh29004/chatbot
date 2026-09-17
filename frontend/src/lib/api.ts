@@ -547,7 +547,7 @@ async function adminRequest<T>(
   if (!response.ok) {
     let detail =
       response.status === 403
-        ? "That admin key was not accepted."
+        ? "Your admin session has ended. Sign in again."
         : `Request failed (${response.status})`;
     try {
       detail = readDetail(await response.json(), detail);
@@ -840,6 +840,28 @@ function qs(params: Record<string, string | number | undefined>): string {
   }
   const rendered = search.toString();
   return rendered ? `?${rendered}` : "";
+}
+
+/** Staff sign-in: trades a username and password for a session token. */
+export async function adminLogin(
+  username: string,
+  password: string,
+): Promise<{ token: string; expires_at: number }> {
+  let response: Response;
+  try {
+    response = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    throw new ApiError(0, "Can't reach the server. Is the API running?");
+  }
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiError(response.status, readDetail(payload, "Could not sign in."));
+  }
+  return payload as { token: string; expires_at: number };
 }
 
 export const adminPanelApi = {

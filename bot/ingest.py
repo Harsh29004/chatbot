@@ -33,7 +33,7 @@ from bot.templates import OPTIONAL_SHEET_COLUMNS, REQUIRED_SHEET_COLUMNS
 # someone is uploading a database export by mistake.
 MAX_ROWS = 5000
 
-# Chroma metadata values must be scalars, and very long answers are a sign the
+# Metadata values are kept as scalars, and very long answers are a sign the
 # sheet holds an article rather than an answer.
 MAX_ANSWER_CHARS = 4000
 

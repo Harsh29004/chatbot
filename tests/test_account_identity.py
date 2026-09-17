@@ -155,10 +155,7 @@ def test_signups_from_one_machine_are_capped(client, monkeypatch):
     Distinct real mailboxes, one person, one afternoon — the half of the
     problem canonical email cannot see.
     """
-    from backend.billing import router
-
     monkeypatch.setattr(identity, "MAX_SIGNUPS_PER_IP_PER_DAY", 2)
-    router._SIGNUPS_BY_IP.clear()
 
     assert signup(client, "capped1@gmail.com").status_code == 201
     assert signup(client, "capped2@gmail.com").status_code == 201
@@ -170,10 +167,7 @@ def test_signups_from_one_machine_are_capped(client, monkeypatch):
 
 def test_a_failed_signup_does_not_count_against_the_cap(client, monkeypatch):
     """Someone who mistyped their password shouldn't burn an attempt."""
-    from backend.billing import router
-
     monkeypatch.setattr(identity, "MAX_SIGNUPS_PER_IP_PER_DAY", 2)
-    router._SIGNUPS_BY_IP.clear()
 
     signup(client, "taken@gmail.com")
     signup(client, "taken@gmail.com")  # 409, not a new account

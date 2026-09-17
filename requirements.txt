@@ -3,8 +3,13 @@
 # would mean two concurrency models in one request path.
 pymongo>=4.6
 
+# Vector similarity for the MongoDB-backed vector store.
+numpy>=1.26
+
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
+# Only app.py (the Hugging Face demo) uses chromadb, as a throwaway in-memory
+# index. The product itself stores vectors in MongoDB.
 chromadb>=0.5.0
 langgraph>=0.2.0
 langchain-core>=0.3.0
@@ -23,7 +28,7 @@ pydantic>=2.7.0
 email-validator>=2.1.0
 python-dotenv>=1.0.0
 
-# Google sign-in. Present transitively via chromadb, but pinned explicitly
+# Google sign-in. Pinned explicitly
 # because backend/billing/google_oauth.py depends on it directly — and it is
 # what verifies the ID token's signature against Google's JWKS rather than
 # trusting a decoded payload.

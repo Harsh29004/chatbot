@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
 
@@ -223,15 +223,22 @@ export function Nav() {
           <div className="nav-actions">
             {customer ? (
               <>
-                <Link to="/assistant" className="nav-link nav-link-hide">
+                {/* The boxed style marks the page you're on, not a fixed
+                    link — otherwise "Dashboard" stays boxed on every page. */}
+                <NavLink
+                  to="/assistant"
+                  className={({ isActive }) =>
+                    isActive ? "btn btn-secondary btn-sm" : "nav-link nav-link-hide"
+                  }
+                >
                   Assistant
-                </Link>
-                <Link to="/support" className="nav-link nav-link-hide">
-                  Support
-                </Link>
-                <Link to="/dashboard" className="btn btn-secondary btn-sm">
+                </NavLink>
+                <NavLink
+                  to="/dashboard"
+                  className={({ isActive }) => (isActive ? "btn btn-secondary btn-sm" : "nav-link")}
+                >
                   Dashboard
-                </Link>
+                </NavLink>
                 <button className="btn btn-ghost btn-sm" onClick={handleSignOut}>
                   Sign out
                 </button>

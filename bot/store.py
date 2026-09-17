@@ -52,7 +52,7 @@ def init_bot_tables() -> None:
 
 
 def collection_name_for(bot_id: Any) -> str:
-    """Every bot gets its own Chroma collection — no shared retrieval space."""
+    """Every bot gets its own vector collection — no shared retrieval space."""
     return f"bot_{bot_id}_index"
 
 
@@ -76,7 +76,7 @@ def get_or_create_bot(user_id: Any, template_id: str = DEFAULT_TEMPLATE_ID) -> d
 
     One upsert rather than read-then-insert: the unique index on ``user_id``
     means a race cannot produce two bots for one account, and two bots would
-    mean two Chroma collections with only one of them ever read.
+    mean two vector collections with only one of them ever read.
     """
     now = _now()
     doc = coll(BOTS).find_one_and_update(

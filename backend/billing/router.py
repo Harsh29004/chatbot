@@ -15,7 +15,6 @@ import logging
 import os
 import secrets
 import time
-from collections import defaultdict
 from typing import Any
 from urllib.parse import quote
 
@@ -23,6 +22,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
 from backend.shared.config import OAUTH_STATE_TTL_SECONDS
+from backend.shared import rate_limits
 from backend.shared.api_keys import (
     count_active_keys_for_email,
     generate_api_key,
@@ -69,10 +69,10 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:5173")
 # ---------------------------------------------------------------------------
 # Login throttling
 # ---------------------------------------------------------------------------
-# In-process and therefore per-worker — enough to blunt credential stuffing on
-# a single-box deployment. Move to Redis before running more than one worker.
+# Failed attempts are counted in MongoDB (backend.shared.rate_limits), so the
+# lockout survives a restart and every worker enforces the same limit.
 
-_FAILED_LOGINS: dict[str, list[float]] = defaultdict(list)
+_LOGIN_BUCKET = "login_failure"
 _THROTTLE_WINDOW_SECONDS = 15 * 60
 _THROTTLE_MAX_ATTEMPTS = 8
 
@@ -83,10 +83,7 @@ def _throttle_key(email: str, request: Request) -> str:
 
 
 def _check_throttle(key: str) -> None:
-    now = time.time()
-    attempts = [t for t in _FAILED_LOGINS[key] if now - t < _THROTTLE_WINDOW_SECONDS]
-    _FAILED_LOGINS[key] = attempts
-    if len(attempts) >= _THROTTLE_MAX_ATTEMPTS:
+    if rate_limits.count(_LOGIN_BUCKET, key, _THROTTLE_WINDOW_SECONDS) >= _THROTTLE_MAX_ATTEMPTS:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed sign-in attempts. Try again in 15 minutes.",
@@ -94,7 +91,7 @@ def _check_throttle(key: str) -> None:
 
 
 def _record_failure(key: str) -> None:
-    _FAILED_LOGINS[key].append(time.time())
+    rate_limits.record(_LOGIN_BUCKET, key, _THROTTLE_WINDOW_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -102,13 +99,10 @@ def _record_failure(key: str) -> None:
 # ---------------------------------------------------------------------------
 # Canonical email stops one *mailbox* opening many accounts. It cannot stop one
 # *person* with several real mailboxes, and the cheap version of that is a
-# handful of signups from one machine in one sitting. This caps that.
-#
-# In-process and therefore per-worker, like the login throttle above — a blunt
-# instrument that raises the cost of bulk signups without a shared store. Move
-# both to Redis before running more than one worker.
+# handful of signups from one machine in one sitting. This caps that, counted
+# in MongoDB so the cap holds across restarts and workers.
 
-_SIGNUPS_BY_IP: dict[str, list[float]] = defaultdict(list)
+_SIGNUP_BUCKET = "signup"
 _SIGNUP_WINDOW_SECONDS = 24 * 60 * 60
 
 
@@ -121,11 +115,7 @@ def _check_signup_rate(request: Request) -> None:
         return  # explicitly disabled
 
     ip = _client_ip(request)
-    now = time.time()
-    recent = [t for t in _SIGNUPS_BY_IP[ip] if now - t < _SIGNUP_WINDOW_SECONDS]
-    _SIGNUPS_BY_IP[ip] = recent
-
-    if len(recent) >= identity.MAX_SIGNUPS_PER_IP_PER_DAY:
+    if rate_limits.count(_SIGNUP_BUCKET, ip, _SIGNUP_WINDOW_SECONDS) >= identity.MAX_SIGNUPS_PER_IP_PER_DAY:
         logger.warning("Signup rate limit hit from %s.", ip)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -137,7 +127,7 @@ def _check_signup_rate(request: Request) -> None:
 
 
 def _record_signup(request: Request) -> None:
-    _SIGNUPS_BY_IP[_client_ip(request)].append(time.time())
+    rate_limits.record(_SIGNUP_BUCKET, _client_ip(request), _SIGNUP_WINDOW_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +473,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Cus
     token = generate_session_token()
     db.create_session(customer["id"], token)
     _set_session_cookie(response, token)
-    _FAILED_LOGINS.pop(throttle_key, None)
+    rate_limits.clear(_LOGIN_BUCKET, throttle_key)
 
     return _customer_public(customer)
 

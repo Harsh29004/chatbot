@@ -2570,3 +2570,55 @@ pre,
 .widget-install pre {
   overflow-x: auto;
 }
+
+/* --------------------------------------------------------------------------
+   Support button — bottom-left, opposite the assistant bubble
+   -------------------------------------------------------------------------- */
+
+.support-fab {
+  position: fixed;
+  left: var(--s5);
+  bottom: var(--s5);
+  z-index: 59;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-bright);
+  background: rgba(15, 20, 30, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--bone);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.support-fab svg {
+  color: var(--accent-glow);
+}
+
+.support-fab:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 18px rgba(31, 143, 255, 0.25);
+}
+
+.support-fab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 480px) {
+  .support-fab {
+    left: var(--s4);
+    bottom: var(--s4);
+    padding: 0 12px;
+  }
+  .support-fab span {
+    display: none;
+  }
+}
