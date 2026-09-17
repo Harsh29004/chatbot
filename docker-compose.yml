@@ -70,6 +70,10 @@ services:
       # browser origin is whatever the site is published at.
       - WEB_ORIGINS=${WEB_ORIGINS:-http://localhost:8000}
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
+      # The API origin written into widget packages and hosted widget scripts.
+      # Set it to https://<your domain>: customers' HTTPS sites cannot call an
+      # http:// API, the browser blocks it as mixed content.
+      - PUBLIC_API_ORIGIN=${PUBLIC_API_ORIGIN:-}
 
       # Retrieval tuning (templates override the thresholds per bot)
       - STRONG_MATCH_THRESHOLD=${STRONG_MATCH_THRESHOLD:-0.85}
@@ -91,6 +95,16 @@ services:
       # The local model. Reached by service name over the compose network.
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+
+      # The fallback chain: these local models in order, then Groq. Every
+      # variable must be listed here — compose only reads .env to fill in
+      # ${...}, so a key set in .env but missing from this list never reaches
+      # the container.
+      - OLLAMA_MODELS=${OLLAMA_MODELS:-qwen2.5:7b,llama3.1:8b,gemma2:9b}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODELS=${GROQ_MODELS:-qwen/qwen3.8-27b,openai/gpt-oss-120b,openai/gpt-oss-20b}
+      - GROQ_TIMEOUT_SECONDS=${GROQ_TIMEOUT_SECONDS:-30}
+      - LLM_COOLDOWN_SECONDS=${LLM_COOLDOWN_SECONDS:-60}
 
       # Grounded rewording for customer bots. Off unless you turn it on, and
       # each bot still opts in separately from its dashboard.

@@ -6,8 +6,10 @@ import { GapList } from "../components/GapList";
 import { PricingSection } from "../components/Pricing";
 import { ReferralCard } from "../components/ReferralCard";
 import { TemplatePicker } from "../components/TemplatePicker";
+import { WidgetGallery } from "../components/WidgetGallery";
 import {
   api,
+  PUBLIC_API_ORIGIN,
   type Bot,
   type CreatedKey,
   type Dashboard as DashboardData,
@@ -256,7 +258,7 @@ export function Dashboard() {
                 title="curl"
                 code={[
                   [{ text: "curl -X POST \\" }],
-                  [{ text: "  http://localhost:8000/v1/ask \\" }],
+                  [{ text: `  ${PUBLIC_API_ORIGIN}/v1/ask \\` }],
                   [
                     { text: "  -H " },
                     {
@@ -413,6 +415,22 @@ export function Dashboard() {
                 <BotTester bot={bot} />
               </div>
             )}
+          </section>
+
+          {/* Go live ---------------------------------------------------- */}
+          <section className="card mb-5" id="install">
+            <div className="mb-5">
+              <h2 className="h-card">Put it on your website</h2>
+              <p className="tiny mt-3">
+                Pick a ready-made design and download its install package, or skip
+                the widget and call the API from your own backend. Either way, your
+                API key is what switches it on.
+              </p>
+            </div>
+            <WidgetGallery
+              keyPrefix={activeKeys[0]?.key_prefix}
+              botReady={bot?.status === "ready"}
+            />
           </section>
 
           {/* Keys ------------------------------------------------------ */}

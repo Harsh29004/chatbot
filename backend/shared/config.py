@@ -60,9 +60,17 @@ EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 # ---------------------------------------------------------------------------
 # ChromaDB persistence
 # ---------------------------------------------------------------------------
-CHROMA_PERSIST_DIR: str = os.getenv(
-    "CHROMA_PERSIST_DIR",
-    str(PROJECT_ROOT / "chroma_data"),
+def _project_path(value: str) -> str:
+    # A relative path is taken from the project root, not the current
+    # directory. Otherwise starting the server from another folder (a systemd
+    # unit, a cron job, `cd backend && uvicorn ...`) silently opens an empty
+    # vector store somewhere else, and every bot looks like it lost its sheet.
+    path = Path(value).expanduser()
+    return str(path if path.is_absolute() else (PROJECT_ROOT / path).resolve())
+
+
+CHROMA_PERSIST_DIR: str = _project_path(
+    os.getenv("CHROMA_PERSIST_DIR", "chroma_data")
 )
 
 # Each bot's collection is named from its id (see bot/store.py),
@@ -157,6 +165,34 @@ LLM_ENABLED: bool = os.getenv("LLM_ENABLED", "false").lower() == "true"
 OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_TIMEOUT_SECONDS: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "20"))
+
+
+def _csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+# The fallback chain, tried in order. When a model is rate limited, busy,
+# timing out or missing, the next one answers instead — first the local
+# Ollama models, then Groq once every local model has failed.
+#
+# OLLAMA_MODEL stays first so an existing .env keeps its primary model.
+OLLAMA_MODELS: list[str] = list(dict.fromkeys(
+    [OLLAMA_MODEL, *_csv(os.getenv("OLLAMA_MODELS", "qwen2.5:7b,llama3.1:8b,gemma2:9b"))]
+))
+
+# Groq is the last resort, and it is a hosted API: the prompt — including
+# retrieved sheet rows — leaves this machine when it is used. Unset
+# GROQ_API_KEY to keep every generation local.
+GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+GROQ_MODELS: list[str] = _csv(
+    os.getenv("GROQ_MODELS", "qwen/qwen3.8-27b,openai/gpt-oss-120b,openai/gpt-oss-20b")
+)
+GROQ_TIMEOUT_SECONDS: float = float(os.getenv("GROQ_TIMEOUT_SECONDS", "30"))
+
+# How long a rate-limited or failing model is skipped before being tried
+# again. Without it every request would re-hit a model we know is saturated.
+LLM_COOLDOWN_SECONDS: float = float(os.getenv("LLM_COOLDOWN_SECONDS", "60"))
 
 # Sampling. Low temperature because the job is faithful rephrasing, not
 # invention — creativity here is the failure mode, not the feature.

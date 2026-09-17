@@ -114,6 +114,9 @@ Edit `.env`:
 SITE_DOMAIN=yourname.duckdns.org
 PUBLIC_BASE_URL=https://yourname.duckdns.org
 WEB_ORIGINS=https://yourname.duckdns.org
+# Written into every widget package customers download. Must be https://,
+# or their HTTPS sites block the widget's requests as mixed content.
+PUBLIC_API_ORIGIN=https://yourname.duckdns.org
 
 # The session cookie is Secure in production. Without HTTPS and this flag
 # nobody can stay signed in, and the failure looks like a login bug.
@@ -127,6 +130,11 @@ MONGO_DB_NAME=nexora
 #   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ADMIN_API_KEY=<paste the output>
 ```
+
+Compose reads `.env` only to fill in the `${...}` values in
+`docker-compose.yml`. A variable that is set in `.env` but not listed under
+the `nexora` service's `environment:` **never reaches the app**. If you add a
+setting, add it there too.
 
 Leave `BILLING_ALLOW_MANUAL=false`. It activates paid plans without taking
 payment, which is useful in development and nowhere else.
@@ -159,8 +167,21 @@ Turn it on later, when you want the assistant, not before:
 
 ```bash
 docker compose --profile tls --profile llm up -d
-docker compose exec ollama ollama pull qwen2.5:7b   # 4.7 GB, once
+# Pull every model in OLLAMA_MODELS (default: qwen2.5:7b,llama3.1:8b,gemma2:9b)
+for m in qwen2.5:7b llama3.1:8b gemma2:9b; do docker compose exec ollama ollama pull $m; done
 ```
+
+Models are tried in order. One that is rate limited, busy, missing or slow
+is skipped for `LLM_COOLDOWN_SECONDS`, and the next one answers. Ollama holds
+only one model in memory at a time (`OLLAMA_MAX_LOADED_MODELS=1`), so falling
+back to another local model costs a model load of tens of seconds on this
+hardware.
+
+**Groq as the last resort.** Set `GROQ_API_KEY` in `.env` and the chain falls
+through to Groq once every local model has failed. It also works with no
+Ollama at all: the assistant and rewording then run entirely on Groq. The
+prompt, including rows from the customer's sheet, leaves the server when Groq
+answers.
 
 Then set `ASSISTANT_ENABLED=true` and/or `LLM_ENABLED=true` in `.env` and
 restart. The two flags are independent: the assistant is a dashboard feature
@@ -194,3 +215,6 @@ docker run --rm -v nexora_chroma-data:/data -v $(pwd):/backup \
 | Site loads, nobody stays signed in | `BILLING_COOKIE_SECURE` not `true`, or `PUBLIC_BASE_URL` still `http://` |
 | Container restarts on boot | `MONGO_URI` wrong, or the instance IP is not in the Atlas allowlist |
 | `/health` fine, templates 500 | Same as above — the app starts, the database call does not |
+| Widget installs but never connects | `PUBLIC_API_ORIGIN` unset or `http://`: re-download the package after fixing it |
+| A setting in `.env` has no effect | It isn't listed under `environment:` in `docker-compose.yml` |
+| Vector store empty after a restart | Container recreated without the `chroma-data` volume (`docker compose down -v` deletes it) |

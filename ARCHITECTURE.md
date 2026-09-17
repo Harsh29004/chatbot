@@ -137,6 +137,29 @@ The global defaults in `backend/shared/config.py` are `0.60` and `0.85`, but
 every template overrides them — the defaults only matter to a bot that hasn't
 picked one yet.
 
+### `bot/widget/` — putting the bot on a customer's site
+
+A template decides what a bot may **say**; a widget theme decides only how it
+**looks**. The two are chosen independently, so any bot can wear any of the
+seven designs.
+
+| File | Job | Worth knowing |
+|---|---|---|
+| `themes.py` | Seven frozen `WidgetTheme`s — palette, radius, layout (`bubble` or `drawer`), default copy | Presentation only. Nothing here can change an answer. |
+| `nexora-widget.js` | The embeddable widget: vanilla JS, no dependencies | Renders in a **Shadow DOM** so the host page's CSS can't break it. Replies go in via `textContent`, never `innerHTML`. |
+| `package.py` | Theme + API origin → install zip (script, demo page, README, server proxies for Node/Python/PHP) | The zip holds **no key**. The built script is **pure ASCII** — customers serve `.js` without a charset, and UTF-8 read as Latin-1 garbles every emoji. |
+| `router.py` | Theme list, package download, hosted `/widget/v1/{id}.js`, `GET /v1/widget/activate` | Activation checks the key and whether the sheet is indexed, and **costs no credits** — loading a page isn't asking a question. |
+
+**Why `/v1` has open CORS and `/api` doesn't.** An installed widget calls
+`/v1` from a domain nobody can list in advance. `PublicApiCors` in
+`server.py` allows any origin there, **without credentials**: those routes
+authenticate with the `X-Api-Key` header, never the cookie, so a hostile page
+gains nothing. `/api` keeps the strict, cookie-aware allowlist.
+
+**A key in a script tag is public.** That's acceptable for trying a design,
+not for production — which is why the widget also takes `data-endpoint`, and
+the package ships proxies that keep the key on the customer's server.
+
 ---
 
 ## `backend/` — everything around the product
@@ -173,7 +196,7 @@ index is a missing constraint, not a missing optimisation.
 | `vector_store.py` | ChromaDB helpers | Collection-scoped. There is no shared retrieval space to leak across. |
 | `logging_store.py` | The unmatched-question log | This is the gap list — the loop that makes a bot get better. |
 | `input_policy.py` | What may reach the model, and what never may | Separate from `guardrails.py` on purpose, so the verbatim path keeps its original, gentler contract. |
-| `llm.py` | Ollama client (sync + streaming) | Every entry point returns `None`, or an empty stream, rather than raising. A bot must not stop answering because an optional component is down. |
+| `llm.py` | Model fallback chain: `OLLAMA_MODELS` in order, then `GROQ_MODELS` | A model that is rate limited, busy, missing or slow is benched for `LLM_COOLDOWN_SECONDS` and the next answers; an unreachable Ollama server benches all local models at once. A stream switches model only before its first token. Every entry point still returns `None`, or an empty stream, rather than raising. **Groq is hosted** — when it answers, the prompt has left the machine; unset `GROQ_API_KEY` to stay local. |
 
 **The guardrails asymmetry.** On the verbatim path the injection detector is
 **logging-only**; the action detector **blocks**. That isn't an oversight. If

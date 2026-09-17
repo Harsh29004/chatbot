@@ -1,16 +1,65 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
 
-export function Logo() {
+/**
+ * The Nexora mark, redrawn as vector from the brand logo: a brushed-silver
+ * angular N inside an electric-blue ring, with the ring's glowing "eye".
+ * Vector rather than the raster logo because the nav shows it at 34px, where
+ * the full illustration's detail turns to mush.
+ */
+export function LogoMark({ size = 34 }: { size?: number }) {
+  const id = useId().replace(/:/g, "");
+  return (
+    <svg
+      className="logo-mark"
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={`${id}-metal`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="0.55" stopColor="#c9d2df" />
+          <stop offset="1" stopColor="#8a96a8" />
+        </linearGradient>
+        <linearGradient id={`${id}-ring`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#5cc6ff" />
+          <stop offset="1" stopColor="#1467c9" />
+        </linearGradient>
+      </defs>
+      <circle cx="32" cy="32" r="29" fill="none" stroke={`url(#${id}-ring)`} strokeWidth="2" />
+      <path d="M3 32l2.2-1.2L3 29.6 1 30.8z M61 32l2-1.2-2-1.2-2.2 1.2z" fill="#5cc6ff" />
+      <path d="M15 12h10l14 27V19l8-7v40H37L23 25v27h-8z" fill={`url(#${id}-metal)`} />
+      <path d="M23 25l14 27h3L25 22z" fill="#1f8fff" opacity="0.8" />
+      <circle cx="45" cy="22" r="4.4" fill="#030509" stroke="#5cc6ff" strokeWidth="2.2" />
+    </svg>
+  );
+}
+
+export function Logo({ withSub = false }: { withSub?: boolean }) {
   return (
     <Link to="/" className="logo" aria-label="Nexora AI home">
-      <span className="logo-mark" aria-hidden="true">
-        N
+      <LogoMark />
+      <span>
+        <span className="logo-word">
+          NEXOR<span className="logo-a">A</span>
+        </span>
+        {withSub && <span className="logo-sub">AI CHAT BOT</span>}
       </span>
-      Nexora AI
     </Link>
+  );
+}
+
+/** The brand line from the logo. */
+export function Tagline() {
+  return (
+    <span className="tagline" aria-label="Think, ask, solve, together">
+      Think <i aria-hidden="true" /> Ask <i aria-hidden="true" /> Solve{" "}
+      <i aria-hidden="true" /> Together
+    </span>
   );
 }
 
@@ -154,7 +203,8 @@ export function Footer() {
       <div className="wrap">
         <div className="footer-inner">
           <div className="footer-brand">
-            <Logo />
+            <Logo withSub />
+            <Tagline />
             <p className="tiny">
               Retrieval-grounded FAQ bots. Answers come from your sheet, not from
               a model's imagination.

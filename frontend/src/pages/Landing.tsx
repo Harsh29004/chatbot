@@ -1,7 +1,7 @@
 import { Suspense, lazy } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { CodeBlock, Page } from "../components/Chrome";
+import { CodeBlock, Page, Tagline } from "../components/Chrome";
 import { PricingSection } from "../components/Pricing";
 import { TemplatePicker } from "../components/TemplatePicker";
 
@@ -128,12 +128,16 @@ export function Landing() {
         <div className="wrap">
           <div className="hero-grid">
             <div className="hero-copy fade-up">
-              <p className="eyebrow">Retrieval-grounded support bots</p>
+              <p className="eyebrow">Nexora · AI chat bot</p>
               <h1 className="h-hero">
                 Answers from your sheet.
                 <br />
                 <span className="line-2">Never invented.</span>
               </h1>
+
+              <div className="mt-5">
+                <Tagline />
+              </div>
 
               <div className="hero-actions">
                 <button className="btn btn-primary" onClick={() => navigate("/signup")}>

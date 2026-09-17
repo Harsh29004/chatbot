@@ -18,10 +18,11 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 
-const ACCENT = "#ff5c28";
-const MINT = "#7dd3c0";
-const CARD = "#1b1f26";
-const LINE = "#39404b";
+// The brand logo's palette: electric blue, its cyan glow, brushed silver.
+const ACCENT = "#1f8fff";
+const MINT = "#5cc6ff";
+const CARD = "#121926";
+const LINE = "#2f3b52";
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);

@@ -30,6 +30,7 @@ from backend.billing.router import router as platform_router
 from backend.owner_router import router as owner_router
 from backend.support.router import router as support_router
 from bot.router import router as bot_router
+from bot.widget.router import router as widget_router
 from backend.shared.mongo import ensure_indexes
 from backend.shared.schemas import HealthResponse
 
@@ -120,19 +121,77 @@ WEB_ORIGINS = [
     if origin.strip()
 ]
 
+CREDIT_HEADERS = [
+    "X-Credits-Remaining",
+    "X-Credits-Daily-Limit",
+    "X-Credits-Reset-At",
+    "X-Credit-Cost",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=WEB_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=[
-        "X-Credits-Remaining",
-        "X-Credits-Daily-Limit",
-        "X-Credits-Reset-At",
-        "X-Credit-Cost",
-    ],
+    expose_headers=CREDIT_HEADERS,
 )
+
+
+class PublicApiCors:
+    """
+    Open CORS for the key-authenticated ``/v1`` API only.
+
+    An installed widget calls ``/v1`` from the customer's own domain, which
+    can't be listed in WEB_ORIGINS ahead of time. That is safe to allow from
+    any origin because these routes authenticate with the ``X-Api-Key``
+    header, never the session cookie — credentials are not allowed here, so
+    a hostile page gains nothing it didn't already have. Every other path
+    falls through to the strict, cookie-aware policy above.
+
+    Added after ``CORSMiddleware`` so it sits outside it and answers first.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/v1/"):
+            await self.app(scope, receive, send)
+            return
+
+        cors = [
+            (b"access-control-allow-origin", b"*"),
+            (b"access-control-expose-headers", ", ".join(CREDIT_HEADERS).encode()),
+        ]
+
+        if scope["method"] == "OPTIONS":
+            await send({
+                "type": "http.response.start",
+                "status": 204,
+                "headers": cors + [
+                    (b"access-control-allow-methods", b"GET, POST, OPTIONS"),
+                    (b"access-control-allow-headers", b"Content-Type, X-Api-Key"),
+                    (b"access-control-max-age", b"600"),
+                ],
+            })
+            await send({"type": "http.response.body", "body": b""})
+            return
+
+        async def send_with_cors(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if not name.lower().startswith(b"access-control-")
+                ]
+                message = {**message, "headers": headers + cors}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cors)
+
+
+app.add_middleware(PublicApiCors)
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +199,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(platform_router)
 app.include_router(bot_router)
+app.include_router(widget_router)
 app.include_router(keys_router)
 app.include_router(owner_router)
 app.include_router(assistant_router)

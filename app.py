@@ -507,15 +507,15 @@ _choices = [(f"{t.icon} {t.name}", t.id) for t in TEMPLATES.values()]
 with gr.Blocks(
     title="Nexora AI",
     theme=gr.themes.Soft(
-        primary_hue="indigo",
-        secondary_hue="purple",
+        primary_hue="blue",
+        secondary_hue="sky",
         neutral_hue="slate",
     ),
     css="""
     .main-header { text-align: center; margin-bottom: 0.5em; }
     .main-header h1 { 
         font-size: 2.5em; 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #ffffff 0%, #b9c3d3 45%, #5cc6ff 75%, #1f8fff 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         font-weight: 800;

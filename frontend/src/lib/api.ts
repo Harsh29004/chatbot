@@ -6,6 +6,15 @@
  * screens can render what actually went wrong instead of "Something failed".
  */
 
+/**
+ * Where customers' servers and installed widgets send requests, for the
+ * snippets the dashboard shows. In production that is this same origin; in
+ * development Vite only proxies /api, so /v1 is the API server directly.
+ */
+export const PUBLIC_API_ORIGIN: string =
+  import.meta.env.VITE_PUBLIC_API_ORIGIN ??
+  (import.meta.env.DEV ? "http://localhost:8000" : window.location.origin);
+
 export class ApiError extends Error {
   status: number;
 
@@ -176,6 +185,35 @@ export interface BotTemplate {
   strictness: "strict" | "balanced" | "open";
 }
 
+export interface WidgetTheme {
+  id: string;
+  name: string;
+  tagline: string;
+  description: string;
+  best_for: string[];
+  layout: "bubble" | "drawer";
+  header_style: "solid" | "gradient" | "glass";
+  launcher_icon: string;
+  primary: string;
+  primary_2: string;
+  on_primary: string;
+  background: string;
+  surface: string;
+  text: string;
+  muted: string;
+  border: string;
+  user_bubble: string;
+  user_text: string;
+  bot_bubble: string;
+  bot_text: string;
+  font_family: string;
+  radius: number;
+  dark: boolean;
+  title: string;
+  greeting: string;
+  placeholder: string;
+}
+
 export interface Bot {
   id: string;
   name: string;
@@ -316,6 +354,10 @@ export const api = {
   // --- templates & bot ---
 
   templates: () => request<BotTemplate[]>("/templates"),
+
+  widgetThemes: () => request<WidgetTheme[]>("/widget/themes"),
+
+  widgetPackageUrl: (themeId: string) => `/api/widget/themes/${themeId}/package`,
 
   starterSheetUrl: (templateId: string) =>
     `/api/templates/${templateId}/starter-sheet`,

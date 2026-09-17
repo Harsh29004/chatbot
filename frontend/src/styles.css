@@ -11,23 +11,25 @@
    ========================================================================== */
 
 :root {
-  /* Surfaces — cool near-black, warmed slightly so it isn't a dead grey */
-  --ink: #0a0b0d;
-  --surface: #101216;
-  --surface-2: #171a20;
-  --surface-3: #1e222a;
-  --line: #262b33;
-  --line-bright: #363c47;
+  /* Surfaces — true black with a cold navy lift, like the logo's backdrop */
+  --ink: #030509;
+  --surface: #090d14;
+  --surface-2: #0f141e;
+  --surface-3: #161d2a;
+  --line: #1a2231;
+  --line-bright: #2a3650;
 
-  /* Text — warm bone reads softer than pure white on a dark ground */
-  --bone: #ece8e1;
-  --muted: #8b929e;
-  --faint: #5c636e;
+  /* Text — brushed silver rather than pure white, like the logo's metal */
+  --bone: #e9eef6;
+  --silver: #b9c3d3;
+  --muted: #8591a6;
+  --faint: #536076;
 
-  /* Accents */
-  --accent: #ff5c28;
-  --accent-dim: #c74318;
-  --accent-wash: rgba(255, 92, 40, 0.1);
+  /* Accents — the logo's electric blue, and the cyan of its glow */
+  --accent: #1f8fff;
+  --accent-dim: #1467c9;
+  --accent-glow: #5cc6ff;
+  --accent-wash: rgba(31, 143, 255, 0.1);
   --mint: #7dd3c0;
   --amber: #e8b84b;
 
@@ -46,7 +48,8 @@
   --radius: 10px;
   --radius-lg: 16px;
 
-  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Exo 2", "Segoe UI", system-ui, sans-serif;
+  --font-brand: "Michroma", "Exo 2", system-ui, sans-serif;
   --font-body: Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
 
@@ -99,10 +102,10 @@ body::after {
   z-index: 0;
   background: radial-gradient(
       ellipse 85% 50% at 78% 8%,
-      rgba(255, 92, 40, 0.15),
+      rgba(31, 143, 255, 0.15),
       transparent 60%
     ),
-    radial-gradient(ellipse 60% 45% at 10% 0%, rgba(125, 211, 192, 0.045), transparent 55%);
+    radial-gradient(ellipse 60% 45% at 10% 0%, rgba(92, 198, 255, 0.05), transparent 55%);
 }
 
 h1,
@@ -173,11 +176,12 @@ pre,
    -------------------------------------------------------------------------- */
 
 .eyebrow {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.14em;
+  font-family: var(--font-brand);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-glow);
   margin-bottom: var(--s4);
 }
 
@@ -187,7 +191,7 @@ pre,
 
 .h-hero {
   font-size: clamp(40px, 7vw, 76px);
-  letter-spacing: -0.035em;
+  letter-spacing: -0.012em;
   font-weight: 800;
 }
 
@@ -257,12 +261,14 @@ pre,
 }
 
 .btn-primary {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent-glow) -30%, var(--accent) 45%, var(--accent-dim) 130%);
   color: #fff;
+  box-shadow: 0 0 0 1px rgba(92, 198, 255, 0.25) inset;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #ff6f42;
+  background: linear-gradient(135deg, var(--accent-glow) -10%, #3a9dff 50%, var(--accent) 130%);
+  box-shadow: 0 0 0 1px rgba(92, 198, 255, 0.4) inset, 0 0 22px rgba(31, 143, 255, 0.35);
 }
 
 .btn-secondary {
@@ -381,7 +387,7 @@ pre,
 }
 
 .error-box {
-  background: rgba(255, 92, 40, 0.08);
+  background: rgba(31, 143, 255, 0.08);
   border: 1px solid var(--accent-dim);
   color: #ffb59b;
   border-radius: var(--radius);
@@ -454,9 +460,9 @@ pre,
   border-bottom: 1px solid var(--line);
   background: linear-gradient(
     90deg,
-    rgba(255, 92, 40, 0.06),
-    rgba(255, 92, 40, 0.16) 50%,
-    rgba(255, 92, 40, 0.06)
+    rgba(31, 143, 255, 0.06),
+    rgba(31, 143, 255, 0.16) 50%,
+    rgba(31, 143, 255, 0.06)
   );
 }
 
@@ -489,7 +495,7 @@ pre,
 }
 
 .announce-cta:hover {
-  background: #ff6f42;
+  background: #3a9dff;
   transform: translateY(-1px);
 }
 
@@ -592,25 +598,62 @@ pre,
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: 17px;
-  letter-spacing: -0.02em;
+  color: var(--bone);
 }
 
 .logo-mark {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: var(--accent);
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 800;
-  font-family: var(--font-display);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset,
-    0 4px 14px rgba(255, 92, 40, 0.35);
+  width: 34px;
+  height: 34px;
+  flex: none;
+  filter: drop-shadow(0 0 8px rgba(31, 143, 255, 0.45));
+}
+
+.logo-word {
+  font-family: var(--font-brand);
+  font-weight: 400;
+  font-size: 16px;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  background: linear-gradient(180deg, #ffffff 20%, var(--silver) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo-word .logo-a {
+  background: linear-gradient(180deg, var(--accent-glow), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.logo-sub {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-brand);
+  font-size: 7.5px;
+  letter-spacing: 0.42em;
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+}
+
+.tagline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-family: var(--font-brand);
+  font-size: 10.5px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--silver);
+}
+
+.tagline i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-glow);
+  box-shadow: 0 0 8px var(--accent);
 }
 
 /* --------------------------------------------------------------------------
@@ -642,7 +685,7 @@ pre,
 .h-hero .line-2 {
   /* The second line carries the promise, so it gets the brighter ink and the
      first line recedes. Two lines at the same weight read as one long label. */
-  background: linear-gradient(92deg, var(--bone) 0%, var(--accent) 64%);
+  background: linear-gradient(92deg, var(--bone) 0%, var(--silver) 30%, var(--accent-glow) 62%, var(--accent) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -662,7 +705,7 @@ pre,
 }
 
 .hero-actions .btn-primary {
-  box-shadow: 0 6px 28px rgba(255, 92, 40, 0.32);
+  box-shadow: 0 6px 28px rgba(31, 143, 255, 0.32);
 }
 
 .hero-canvas {
@@ -681,11 +724,11 @@ pre,
   pointer-events: none;
   background: radial-gradient(
       circle at 50% 46%,
-      rgba(255, 92, 40, 0.34) 0%,
-      rgba(255, 92, 40, 0.13) 32%,
+      rgba(31, 143, 255, 0.34) 0%,
+      rgba(31, 143, 255, 0.13) 32%,
       transparent 62%
     ),
-    radial-gradient(circle at 62% 70%, rgba(125, 211, 192, 0.12) 0%, transparent 55%);
+    radial-gradient(circle at 62% 70%, rgba(92, 198, 255, 0.14) 0%, transparent 55%);
   filter: blur(18px);
 }
 
@@ -1467,7 +1510,7 @@ pre,
   border-top: 1px solid var(--line);
   padding: var(--s8) 0 var(--s6);
   margin-top: auto;
-  background: linear-gradient(180deg, transparent, rgba(255, 92, 40, 0.035));
+  background: linear-gradient(180deg, transparent, rgba(31, 143, 255, 0.035));
 }
 
 .footer-inner {
@@ -1846,7 +1889,7 @@ pre,
 .bubble-user {
   align-self: flex-end;
   background: var(--accent-wash);
-  border: 1px solid rgba(255, 92, 40, 0.28);
+  border: 1px solid rgba(31, 143, 255, 0.28);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2274,7 +2317,7 @@ pre,
 .referral-banner {
   padding: var(--s3);
   margin-bottom: var(--s4);
-  border: 1px solid rgba(255, 92, 40, 0.35);
+  border: 1px solid rgba(31, 143, 255, 0.35);
   border-radius: var(--radius);
   background: var(--accent-wash);
   font-size: 13px;
@@ -2388,4 +2431,163 @@ pre,
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
   .chat-fab { right: var(--s4); bottom: var(--s4); }
+}
+
+/* --------------------------------------------------------------------------
+   Widget gallery — installable chat designs
+   -------------------------------------------------------------------------- */
+
+.widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--s4);
+  margin-top: var(--s5);
+}
+
+.widget-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.widget-card:hover {
+  border-color: var(--line-bright);
+  transform: translateY(-2px);
+}
+
+.widget-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.widget-card[data-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.widget-card-body {
+  padding: var(--s4);
+}
+
+.widget-preview {
+  position: relative;
+  height: 210px;
+  overflow: hidden;
+}
+
+.widget-preview-panel {
+  position: absolute;
+  right: 14px;
+  bottom: 50px;
+  width: 172px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid;
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.45);
+  font-size: 8.5px;
+  line-height: 1.35;
+}
+
+.widget-preview-panel[data-layout="drawer"] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 150px;
+}
+
+.widget-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  font-weight: 700;
+  font-size: 9.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.widget-preview-avatar {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.widget-preview-log {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+.widget-preview-msg {
+  max-width: 88%;
+  padding: 5px 7px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.widget-preview-user {
+  align-self: flex-end;
+}
+
+.widget-preview-input {
+  margin: 0 8px 8px;
+  padding: 5px 7px;
+  border: 1px solid;
+  border-radius: 6px;
+}
+
+.widget-preview-launcher {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  width: 30px;
+  height: 30px;
+  box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.4);
+}
+
+.widget-install {
+  margin-top: var(--s5);
+  padding-top: var(--s5);
+  border-top: 1px solid var(--line);
+}
+
+.widget-steps {
+  margin: var(--s5) 0;
+  padding-left: 20px;
+  display: grid;
+  gap: var(--s2);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.widget-steps strong {
+  color: var(--bone);
+}
+
+.widget-code-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: var(--s4);
+}
+
+.widget-code-grid pre,
+.widget-install pre {
+  overflow-x: auto;
 }
