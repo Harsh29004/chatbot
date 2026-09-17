@@ -1,47 +1,79 @@
 # Deploying on Oracle Cloud Always Free
 
-The whole product — API, web app and vector store — on one machine that costs
-nothing, forever, behind a real HTTPS certificate.
+This guide puts the whole product (API, web app and vector store) on one free
+Oracle Cloud machine, behind a real HTTPS certificate.
 
-Everything is served from **one origin**: the container serves the built SPA
-and the API together. That is not laziness, it is what lets the session cookie
-stay `SameSite=Lax` with no cross-site handling anywhere. Splitting the
-frontend onto another host means changing the cookie policy, adding CORS
-origins, and putting TLS on the API anyway — more work, for a CDN you do not
-need yet.
+One container serves both the web app and the API from the **same origin**.
+That keeps the session cookie simple (`SameSite=Lax`, no cross-site setup) and
+means TLS only has to be set up once, in Caddy.
 
-## What you need before you start
+```
+internet ──443──▶ Caddy (TLS) ──▶ nexora container ──▶ MongoDB Atlas
+                                        │
+                                        ├──▶ chroma-data volume (vectors)
+                                        └──▶ LLM chain: Ollama → Groq → Gemini (optional)
+```
 
-| | |
+## Contents
+
+1. [Before you start](#1-before-you-start)
+2. [Create the instance](#2-create-the-instance)
+3. [Open ports 80 and 443](#3-open-ports-80-and-443)
+4. [Install Docker and add swap](#4-install-docker-and-add-swap)
+5. [Point a domain at it](#5-point-a-domain-at-it)
+6. [Create the database](#6-create-the-database)
+7. [Get the code and configure](#7-get-the-code-and-configure)
+8. [Start it](#8-start-it)
+9. [Optional: Google sign-in](#9-optional-google-sign-in)
+10. [Optional: LLM features](#10-optional-llm-features)
+11. [Updating](#11-updating)
+12. [Backups](#12-backups)
+13. [Troubleshooting](#13-troubleshooting)
+
+---
+
+## 1. Before you start
+
+| You need | Notes |
 |---|---|
-| Oracle Cloud account | Always Free tier, card verified (not charged) |
-| A hostname | A free DuckDNS subdomain is fine — step 4 |
-| MongoDB | Atlas M0 free cluster — step 5 |
+| Oracle Cloud account | Always Free tier. A card is verified but not charged. |
+| A domain name | A free [DuckDNS](https://www.duckdns.org) subdomain works. Google sign-in won't accept a bare IP address. |
+| MongoDB | A free Atlas M0 cluster (step 6). |
+| Optional API keys | Groq and/or Gemini, for the LLM features (step 10). |
 
-## 1. Provision the instance
+Throughout this guide, replace `yourname.duckdns.org` with your own domain.
 
-Create an **Ampere A1 (aarch64)** compute instance:
+## 2. Create the instance
 
-- **Shape:** VM.Standard.A1.Flex — 2 OCPU, 12 GB RAM
-- **Image:** Ubuntu 24.04 (ARM build)
-- **Boot volume:** 100 GB or more
-- Save the SSH private key it offers you. There is no second chance at it.
+In the Oracle console, create a compute instance:
 
-> **If you get "Out of host capacity"** — that is normal for A1 and not
-> something you did wrong. Try a different availability domain, or try again
-> later. It frees up in waves.
+| Setting | Value |
+|---|---|
+| Shape | **VM.Standard.A1.Flex** (Ampere, ARM): 2 OCPU, 12 GB RAM |
+| Image | Ubuntu 24.04 (aarch64) |
+| Boot volume | 100 GB or more |
+| SSH key | Download the private key it offers. You can't get it again later. |
 
-## 2. Open the ports
+> **"Out of host capacity"** is normal for A1 shapes. Try another availability
+> domain, or try again later.
 
-Oracle has two firewalls and forgetting the second one is the classic wasted
-afternoon. Ports **80 and 443**, in both places. Port 80 is not optional even
-though the site redirects away from it — Let's Encrypt validates over port 80,
-and without it you get no certificate at all.
+Then connect:
 
-In the console: **VCN → Security Lists → Add Ingress Rules**, source
-`0.0.0.0/0`, TCP, destination ports 80 and 443.
+```bash
+ssh -i path/to/private.key ubuntu@<public-ip>
+```
 
-Then on the instance itself:
+## 3. Open ports 80 and 443
+
+Oracle has **two** firewalls, and both must allow the ports. Port 80 is
+required even though the site redirects to HTTPS: Let's Encrypt checks your
+domain over port 80 before it issues a certificate.
+
+**In the console:** Networking → Virtual Cloud Networks → your VCN → Security
+Lists → Add Ingress Rules. Source `0.0.0.0/0`, protocol TCP, destination ports
+`80` and `443`.
+
+**On the instance:**
 
 ```bash
 sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
@@ -49,16 +81,15 @@ sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
 sudo netfilter-persistent save
 ```
 
-## 3. Install Docker and add swap
+## 4. Install Docker and add swap
 
 ```bash
-sudo apt update && sudo apt install -y docker.io docker-compose-v2
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git git-lfs
 sudo usermod -aG docker $USER && newgrp docker
 ```
 
-Swap is not for steady state — 12 GB is plenty for the app. It is for the
-build, where installing torch on two ARM cores briefly wants more than you
-would expect. It turns a possible OOM kill into a slow few seconds.
+The first image build (installing torch on two ARM cores) briefly needs more
+memory than the app does. Swap stops that from being killed:
 
 ```bash
 sudo fallocate -l 4G /swapfile
@@ -67,154 +98,251 @@ sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-## 4. Point a hostname at it
+## 5. Point a domain at it
 
-Copy the instance's **public IP** from the console. Then at
-[duckdns.org](https://www.duckdns.org) sign in with GitHub or Google, claim a
-subdomain, and paste the IP into its "current ip" box.
-
-Check it resolves before going further. If this is wrong, the certificate
-request in step 7 fails and Caddy retries on a backoff that is slow enough to
-be confusing:
+1. Copy the instance's **public IP** from the console.
+2. At [duckdns.org](https://www.duckdns.org), sign in, claim a subdomain, and
+   set its IP to the instance's public IP.
+3. Check that it resolves before continuing:
 
 ```bash
-dig +short yourname.duckdns.org    # must print your instance's public IP
+dig +short yourname.duckdns.org   # must print the instance's public IP
 ```
 
-## 5. Create the database
+If this is wrong, the certificate request in step 8 fails and Caddy keeps
+retrying slowly.
 
-At [mongodb.com/atlas](https://www.mongodb.com/atlas) create a free **M0**
-cluster. 512 MB, free forever, no card.
+## 6. Create the database
 
-Two things to get right:
+At [mongodb.com/atlas](https://www.mongodb.com/atlas), create a free **M0**
+cluster, then:
 
-- **Database user** — create one and keep the password. It goes in the
-  connection string.
-- **Network access** — add the instance's public IP. `0.0.0.0/0` also works
-  and is what most people end up doing, but it means the only thing between
-  your data and the internet is that password, so make it a long one.
+1. **Database Access:** create a database user with a long password.
+2. **Network Access:** add the instance's public IP. (`0.0.0.0/0` also works,
+   but then the password is the only protection.)
+3. **Connect → Drivers:** copy the `mongodb+srv://…` connection string.
 
-Then **Connect → Drivers** and copy the `mongodb+srv://…` string.
+## 7. Get the code and configure
 
-## 6. Configure
-
-The repo routes images and fonts through Git LFS, so install it first or
-those files arrive as text pointers:
+Install Git LFS **before** cloning, or images arrive as small text files:
 
 ```bash
-sudo apt install -y git-lfs && git lfs install
-git clone -b feature/billing-platform <your repo> nexora && cd nexora
+git lfs install
+git clone -b feature/billing-platform https://github.com/Harsh29004/chatbot.git nexora
+cd nexora
 cp .env.example .env
+nano .env
 ```
 
-Edit `.env`:
+Set at least these values in `.env`:
 
 ```bash
-# Where it lives
+# --- Domain ---
 SITE_DOMAIN=yourname.duckdns.org
 PUBLIC_BASE_URL=https://yourname.duckdns.org
 WEB_ORIGINS=https://yourname.duckdns.org
-# Written into every widget package customers download. Must be https://,
-# or their HTTPS sites block the widget's requests as mixed content.
+# Written into widget packages customers download. Must be https://,
+# or HTTPS sites block the widget's requests.
 PUBLIC_API_ORIGIN=https://yourname.duckdns.org
 
-# The session cookie is Secure in production. Without HTTPS and this flag
-# nobody can stay signed in, and the failure looks like a login bug.
+# --- Sessions ---
+# Required with HTTPS, or nobody stays signed in.
 BILLING_COOKIE_SECURE=true
+BILLING_ALLOW_MANUAL=false
 
-# Database
+# --- Database ---
 MONGO_URI=mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
 MONGO_DB_NAME=nexora
 
-# Generate this, do not invent it:
-#   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-ADMIN_API_KEY=<paste the output>
+# --- Admin ---
+# Generate it: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+ADMIN_API_KEY=<paste the generated value>
 ```
 
-Compose reads `.env` only to fill in the `${...}` values in
-`docker-compose.yml`. A variable that is set in `.env` but not listed under
-the `nexora` service's `environment:` **never reaches the app**. If you add a
-setting, add it there too.
+Keep a few rules in mind:
 
-Leave `BILLING_ALLOW_MANUAL=false`. It activates paid plans without taking
-payment, which is useful in development and nowhere else.
+- **Never use `localhost` or `http://`** in `.env` on the server.
+- **Leave `BILLING_ALLOW_MANUAL=false`.** It activates paid plans without payment.
+- **Compose only passes listed variables.** Docker Compose uses `.env` to fill
+  in `${...}` values in `docker-compose.yml`. A setting that isn't listed under
+  the `nexora` service's `environment:` never reaches the app. If you add a new
+  setting, add it there too.
+- **Never commit `.env`.** It's already in `.gitignore`.
 
-## 7. Start it
+## 8. Start it
 
 ```bash
 docker compose --profile tls up -d --build
 ```
 
-The first build takes 15–30 minutes on two ARM cores. Most of that is
-installing torch and baking the embedding model into the image, which is done
-at build time so a cold container does not stall on its first request.
+The first build takes **15–30 minutes** on two ARM cores. Most of it is
+installing torch and baking the embedding model into the image, so the first
+request after a restart isn't slow.
 
-Then:
+Check it's working:
 
 ```bash
-curl https://yourname.duckdns.org/health
-docker compose logs -f caddy      # certificate issuance, if it did not work
+docker compose ps                             # nexora and caddy should be "Up"
+curl https://yourname.duckdns.org/health      # {"status":"ok"}
 ```
 
-## What is deliberately not running
+Then open `https://yourname.duckdns.org` in a browser and create an account.
 
-**Ollama.** The dashboard assistant and grounded rewording need a language
-model, and a 7B model wants ~7 GB held resident. The FAQ bot does not use it:
-it embeds the question, finds the closest row in the customer's sheet, and
-returns that answer in about 18 ms with no model anywhere in the path.
+To create an unlimited owner key (there is deliberately no web endpoint for
+this):
 
-Turn it on later, when you want the assistant, not before:
+```bash
+docker compose exec nexora python backend/scripts/create_owner_key.py you@example.com "Your Name"
+```
+
+## 9. Optional: Google sign-in
+
+Without these settings, the "Continue with Google" button stays hidden and
+email/password sign-in still works.
+
+**In [Google Cloud Console](https://console.cloud.google.com/apis/credentials)**,
+open your OAuth 2.0 client and add:
+
+| Field | Value |
+|---|---|
+| Authorized JavaScript origins | `https://yourname.duckdns.org` |
+| Authorized redirect URIs | `https://yourname.duckdns.org/api/auth/google/callback` |
+
+**In `.env`:**
+
+```bash
+GOOGLE_CLIENT_ID=<client id>
+GOOGLE_CLIENT_SECRET=<client secret>
+GOOGLE_REDIRECT_URI=https://yourname.duckdns.org/api/auth/google/callback
+```
+
+The redirect URI must match **exactly** in both places: `https`, same domain,
+no trailing slash. Otherwise Google shows `redirect_uri_mismatch`.
+
+Apply it:
+
+```bash
+docker compose --profile tls up -d
+```
+
+## 10. Optional: LLM features
+
+The FAQ bot never needs an LLM. It answers straight from the customer's sheet
+in about 18 ms. An LLM is only used by two optional features:
+
+| Flag | Feature |
+|---|---|
+| `ASSISTANT_ENABLED=true` | The chat assistant in the signed-in dashboard |
+| `LLM_ENABLED=true` | Lets bot owners turn on grounded rewording of near matches |
+
+### The fallback chain
+
+Models are tried in the order set by `LLM_PROVIDER_ORDER`
+(default `ollama,groq,gemini`):
+
+```
+Ollama models (local) ──all fail──▶ Groq models ──all fail──▶ Gemini models × every key
+```
+
+- **Rate limited, busy, missing or slow:** the model is skipped for
+  `LLM_COOLDOWN_SECONDS` (default 60) and the next one answers.
+- **Key rejected (invalid or revoked):** that key is skipped for every model
+  for `LLM_BAD_KEY_COOLDOWN_SECONDS` (default 3600).
+- **Everything fails:** nothing breaks. The bot sends the stored answer word
+  for word.
+
+You only need to set up the providers you want. Any provider without a key
+(or, for Ollama, without a running server) is simply skipped.
+
+### Option A: hosted only (Groq and/or Gemini)
+
+This is the lightest setup and needs no extra memory on the server. Add to
+`.env`:
+
+```bash
+ASSISTANT_ENABLED=true
+LLM_ENABLED=true
+
+GROQ_API_KEY=<your groq key>
+GEMINI_API_KEYS=<key1>,<key2>,<key3>,<key4>
+```
+
+Each Gemini model is tried on every key before moving to the next model, so a
+key that hits its free-tier limit hands over to the next key.
+
+> **Privacy:** Groq and Gemini are hosted APIs. When they answer, the prompt,
+> including rows from the customer's sheet, leaves your server.
+
+Apply it:
+
+```bash
+docker compose --profile tls up -d
+```
+
+### Option B: add local models with Ollama
+
+Local models keep prompts on your server, but a 7B model holds about 7 GB of
+RAM, and on two ARM cores expect 2–5 s to the first word.
 
 ```bash
 docker compose --profile tls --profile llm up -d
-# Pull every model in OLLAMA_MODELS (default: qwen2.5:7b,llama3.1:8b,gemma2:9b)
-for m in qwen2.5:7b llama3.1:8b gemma2:9b; do docker compose exec ollama ollama pull $m; done
+
+# Pull every model listed in OLLAMA_MODELS
+for m in qwen2.5:7b llama3.1:8b gemma2:9b; do
+  docker compose exec ollama ollama pull $m
+done
 ```
 
-Models are tried in order. One that is rate limited, busy, missing or slow
-is skipped for `LLM_COOLDOWN_SECONDS`, and the next one answers. Ollama holds
-only one model in memory at a time (`OLLAMA_MAX_LOADED_MODELS=1`), so falling
-back to another local model costs a model load of tens of seconds on this
-hardware.
+Ollama keeps one model in memory at a time, so falling back from one local
+model to another costs a model load of tens of seconds. From now on, include
+`--profile llm` in every `up` command.
 
-**Groq as the last resort.** Set `GROQ_API_KEY` in `.env` and the chain falls
-through to Groq once every local model has failed. It also works with no
-Ollama at all: the assistant and rewording then run entirely on Groq. The
-prompt, including rows from the customer's sheet, leaves the server when Groq
-answers.
+## 11. Updating
 
-Then set `ASSISTANT_ENABLED=true` and/or `LLM_ENABLED=true` in `.env` and
-restart. The two flags are independent: the assistant is a dashboard feature
-for signed-in customers, while `LLM_ENABLED` only makes the per-bot rewording
-toggle available, and each bot still opts in separately from its own
-dashboard.
+```bash
+cd ~/nexora
+git pull
+docker compose --profile tls up -d --build    # add --profile llm if you use Ollama
+```
 
-On two Ampere cores expect 2–5 s to first token and ~3–6 tokens/sec. Streaming
-is what makes that acceptable — the answer is readable while it is still being
-written. It will not match ChatGPT or Claude, and it is not trying to.
+Data survives updates: accounts live in MongoDB, and vectors live in the
+`chroma-data` volume.
 
-## Keeping it alive
+> ⚠️ **Never run `docker compose down -v`.** The `-v` deletes the volumes,
+> including every customer's indexed FAQ sheet. Plain `docker compose down` is
+> safe.
 
-Oracle reclaims **idle** Always Free compute. The rule is sustained low CPU,
-network and memory over a 7-day window. An instance serving a site does not
-usually qualify, but the policy exists and it is worth knowing before you put
-something you care about on it.
+Useful commands:
 
-Back up the vector store — Mongo is Atlas's problem, this one is yours:
+```bash
+docker compose logs -f nexora      # app logs
+docker compose logs -f caddy       # certificate issues
+docker compose restart nexora      # restart the app only
+```
+
+## 12. Backups
+
+MongoDB Atlas handles the database. The vector store is yours to back up:
 
 ```bash
 docker run --rm -v nexora_chroma-data:/data -v $(pwd):/backup \
   alpine tar czf /backup/chroma-$(date +%F).tar.gz -C /data .
 ```
 
-## When something is wrong
+Oracle reclaims **idle** Always Free instances (low CPU, network and memory
+over 7 days). A site with real traffic usually doesn't qualify, but keep
+backups off the instance.
 
-| Symptom | Cause |
+## 13. Troubleshooting
+
+| Symptom | Likely cause |
 |---|---|
-| No certificate, Caddy retrying | Port 80 closed in the VCN, or DNS not pointing at the instance yet |
-| Site loads, nobody stays signed in | `BILLING_COOKIE_SECURE` not `true`, or `PUBLIC_BASE_URL` still `http://` |
-| Container restarts on boot | `MONGO_URI` wrong, or the instance IP is not in the Atlas allowlist |
-| `/health` fine, templates 500 | Same as above — the app starts, the database call does not |
-| Widget installs but never connects | `PUBLIC_API_ORIGIN` unset or `http://`: re-download the package after fixing it |
-| A setting in `.env` has no effect | It isn't listed under `environment:` in `docker-compose.yml` |
-| Vector store empty after a restart | Container recreated without the `chroma-data` volume (`docker compose down -v` deletes it) |
+| No certificate, Caddy keeps retrying | Port 80 closed in the VCN or `iptables`, or DNS doesn't point at the instance yet |
+| Site loads, but nobody stays signed in | `BILLING_COOKIE_SECURE` isn't `true`, or `PUBLIC_BASE_URL` is still `http://` |
+| Container restarts in a loop | `MONGO_URI` is wrong, or the instance IP isn't in Atlas Network Access |
+| `/health` works, but templates return 500 | Same as above: the app starts, but can't reach the database |
+| Google sign-in shows `redirect_uri_mismatch` | `GOOGLE_REDIRECT_URI` doesn't exactly match the URI in Google Cloud Console |
+| Widget installs but never connects | `PUBLIC_API_ORIGIN` unset or `http://`. Fix it, then download the package again |
+| Assistant says the model is unavailable | `ASSISTANT_ENABLED` not `true`, no provider keys set, or Ollama started without `--profile llm` |
+| A setting in `.env` has no effect | It isn't listed under `environment:` in `docker-compose.yml`, or the container wasn't recreated (`up -d`) |
+| All bots lost their answers after a restart | The `chroma-data` volume was deleted (`down -v`). Restore from a backup |

@@ -608,32 +608,11 @@ pre,
   filter: drop-shadow(0 0 8px rgba(31, 143, 255, 0.45));
 }
 
-.logo-word {
-  font-family: var(--font-brand);
-  font-weight: 400;
-  font-size: 16px;
-  letter-spacing: 0.14em;
-  line-height: 1;
-  background: linear-gradient(180deg, #ffffff 20%, var(--silver) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.logo-word .logo-a {
-  background: linear-gradient(180deg, var(--accent-glow), var(--accent));
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-.logo-sub {
+.wordmark {
   display: block;
-  margin-top: 4px;
-  font-family: var(--font-brand);
-  font-size: 7.5px;
-  letter-spacing: 0.42em;
-  color: var(--muted);
-  -webkit-text-fill-color: var(--muted);
+  flex: none;
+  overflow: visible;
+  filter: drop-shadow(0 0 5px rgba(31, 143, 255, 0.45));
 }
 
 .tagline {

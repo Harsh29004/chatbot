@@ -163,17 +163,22 @@ bot owner turns it on) and the signed-in dashboard assistant. Instead of relying
 on one model, the server tries a chain of models in order:
 
 ```
-OLLAMA_MODELS (local, in order)  ──all fail──▶  GROQ_MODELS (hosted, in order)
+OLLAMA_MODELS (local)  ──all fail──▶  GROQ_MODELS  ──all fail──▶  GEMINI_MODELS × GEMINI_API_KEYS
 ```
 
+The order is set by `LLM_PROVIDER_ORDER` (default `ollama,groq,gemini`). Remove
+a provider from the list to switch it off.
+
 - **When a model is skipped:** if it is rate limited (429), busy (503), missing (404), erroring (5xx) or times out, it is skipped for `LLM_COOLDOWN_SECONDS` and the next model is tried. If Groq sends a `Retry-After` header, that wait is used instead.
+- **Gemini key rotation:** `GEMINI_API_KEYS` takes several keys, comma-separated. Each Gemini model is tried on every key before moving to the next model, because free-tier quotas are per project and per model. A rate-limited key is skipped for that model only. A key that Google rejects (invalid, revoked or disabled) is skipped for every model for `LLM_BAD_KEY_COOLDOWN_SECONDS`. Logs show `#key2`, never the key itself.
 - **When Ollama itself is down:** if the Ollama server can't be reached, all local models are skipped together, so a request doesn't wait for each one to time out.
 - **Streaming:** a streamed reply can switch models only before its first token. It never joins two models' answers together.
 - **When every model fails:** nothing crashes. The bot sends the stored answer word for word, and the assistant says the model is unavailable.
 
-> **Privacy:** the Ollama models run on your own machine. When Groq answers, the
-> prompt, including rows from the customer's sheet, is sent to a hosted API.
-> Leave `GROQ_API_KEY` empty to keep everything local.
+> **Privacy:** the Ollama models run on your own machine. When Groq or Gemini
+> answers, the prompt, including rows from the customer's sheet, is sent to a
+> hosted API. Leave `GROQ_API_KEY` and `GEMINI_API_KEYS` empty to keep
+> everything local.
 
 Pull the local models before you enable the chain:
 
@@ -226,7 +231,7 @@ pip install gradio && python app.py
 pytest
 ```
 
-The test suite needs no MongoDB, Ollama, Groq or embedding model. It uses
+The test suite needs no MongoDB, Ollama, Groq, Gemini or embedding model. It uses
 `mongomock`, deterministic fake embeddings, and a fake HTTP transport for LLM
 providers.
 
@@ -263,7 +268,11 @@ every one of them. These are the main ones:
 | `OLLAMA_MODELS` | `qwen2.5:7b,llama3.1:8b,gemma2:9b` | Local fallback models, in order |
 | `GROQ_API_KEY` | empty | Enables Groq as the last fallback. Leave empty to stay local. |
 | `GROQ_MODELS` | `qwen/qwen3.8-27b,openai/gpt-oss-120b,openai/gpt-oss-20b` | Groq models, in order |
+| `GEMINI_API_KEYS` | empty | Comma-separated Gemini keys, rotated per model. Leave empty to switch Gemini off. |
+| `GEMINI_MODELS` | `gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.8-flash` | Gemini models, in order |
+| `LLM_PROVIDER_ORDER` | `ollama,groq,gemini` | Which providers are tried, and in what order |
 | `LLM_COOLDOWN_SECONDS` | `60` | How long a failing model is skipped |
+| `LLM_BAD_KEY_COOLDOWN_SECONDS` | `3600` | How long a key the provider rejects is skipped |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | empty | Optional Google sign-in |
 
 > Never commit `.env`. It is already in `.gitignore`. If a key has been pasted

@@ -105,6 +105,11 @@ services:
       - GROQ_MODELS=${GROQ_MODELS:-qwen/qwen3.8-27b,openai/gpt-oss-120b,openai/gpt-oss-20b}
       - GROQ_TIMEOUT_SECONDS=${GROQ_TIMEOUT_SECONDS:-30}
       - LLM_COOLDOWN_SECONDS=${LLM_COOLDOWN_SECONDS:-60}
+      - LLM_BAD_KEY_COOLDOWN_SECONDS=${LLM_BAD_KEY_COOLDOWN_SECONDS:-3600}
+      - GEMINI_API_KEYS=${GEMINI_API_KEYS:-}
+      - GEMINI_MODELS=${GEMINI_MODELS:-gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.8-flash}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-30}
+      - LLM_PROVIDER_ORDER=${LLM_PROVIDER_ORDER:-ollama,groq,gemini}
 
       # Grounded rewording for customer bots. Off unless you turn it on, and
       # each bot still opts in separately from its dashboard.

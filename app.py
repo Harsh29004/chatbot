@@ -533,7 +533,31 @@ with gr.Blocks(
 
     gr.HTML("""
     <div class="main-header">
-        <h1>🤖 Nexora AI</h1>
+        <h1 aria-label="Nexora AI">
+        <svg viewBox="0 0 594 100" height="56" style="filter:drop-shadow(0 0 8px rgba(31,143,255,.55))">
+          <defs>
+            <linearGradient id="nx-silver" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="90"><stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#dde3ec"/><stop offset="1" stop-color="#9aa6b8"/></linearGradient>
+            <linearGradient id="nx-blue" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="90"><stop offset="0" stop-color="#5cc6ff"/><stop offset=".55" stop-color="#1f8fff"/><stop offset="1" stop-color="#1250d8"/></linearGradient>
+          </defs>
+      <g fill="none" stroke-width="12" stroke-linejoin="bevel" stroke-linecap="butt">
+        <path stroke="url(#nx-silver)" d="M12,86 V14 L56,86 V14" />
+        <path stroke="url(#nx-silver)" d="M86,14 V86 M80,20 H130 M80,50 H124 M80,80 H130" />
+        <path stroke="url(#nx-silver)" d="M206,14 L156,86" />
+        <path stroke="url(#nx-blue)" d="M156,14 L206,86" />
+        <circle cx="264" cy="50" r="30" stroke="url(#nx-silver)" />
+        <path stroke="url(#nx-blue)" stroke-width="5" d="M284,62 A22,22 0 1 1 262,28" />
+        <path
+          fill="url(#nx-blue)"
+          stroke="none"
+          d="M264,38 L267,47 L276,50 L267,53 L264,62 L261,53 L252,50 L261,47 Z"
+        />
+        <path stroke="url(#nx-silver)" d="M324,86 V14 M318,20 H350 A15,15 0 0 1 350,50 H318 M346,50 L372,86" />
+        <path stroke="url(#nx-silver)" d="M390,86 L420,19 L450,86" />
+        <path stroke="url(#nx-blue)" d="M494,86 L524,19 L554,86" />
+        <path stroke="url(#nx-blue)" d="M582,14 V86" />
+      </g>
+        </svg>
+        </h1>
         <p>Retrieval-grounded FAQ chatbots — the bot cannot state a fact the customer didn't write down.</p>
     </div>
     """)

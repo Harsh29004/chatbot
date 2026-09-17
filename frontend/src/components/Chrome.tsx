@@ -39,16 +39,72 @@ export function LogoMark({ size = 34 }: { size?: number }) {
   );
 }
 
-export function Logo({ withSub = false }: { withSub?: boolean }) {
+/**
+ * The "NEXORA AI" wordmark, drawn letter by letter from the brand artwork:
+ * brushed-silver strokes, an open A with no crossbar, a half-blue X, an O
+ * holding the four-point star, and "AI" in electric blue.
+ *
+ * Drawn rather than typeset because no web font has these letterforms — the
+ * open A and the star-in-O are the brand, and a font would lose both.
+ */
+export function Wordmark({ height = 20, title = "Nexora AI" }: { height?: number; title?: string }) {
+  const id = useId().replace(/:/g, "");
+  const silver = `url(#${id}-silver)`;
+  const blue = `url(#${id}-blue)`;
+  return (
+    <svg
+      className="wordmark"
+      height={height}
+      width={(height * 594) / 100}
+      viewBox="0 0 594 100"
+      role="img"
+      aria-label={title}
+    >
+      <defs>
+        <linearGradient id={`${id}-silver`} gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="90">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="0.5" stopColor="#dde3ec" />
+          <stop offset="1" stopColor="#9aa6b8" />
+        </linearGradient>
+        <linearGradient id={`${id}-blue`} gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="90">
+          <stop offset="0" stopColor="#5cc6ff" />
+          <stop offset="0.55" stopColor="#1f8fff" />
+          <stop offset="1" stopColor="#1250d8" />
+        </linearGradient>
+      </defs>
+      <g fill="none" strokeWidth="12" strokeLinejoin="bevel" strokeLinecap="butt">
+        {/* N */}
+        <path stroke={silver} d="M12,86 V14 L56,86 V14" />
+        {/* E */}
+        <path stroke={silver} d="M86,14 V86 M80,20 H130 M80,50 H124 M80,80 H130" />
+        {/* X — one stroke silver, one blue, as in the logo */}
+        <path stroke={silver} d="M206,14 L156,86" />
+        <path stroke={blue} d="M156,14 L206,86" />
+        {/* O — a ring with a blue crescent and the four-point star */}
+        <circle cx="264" cy="50" r="30" stroke={silver} />
+        <path stroke={blue} strokeWidth="5" d="M284,62 A22,22 0 1 1 262,28" />
+        <path
+          fill={blue}
+          stroke="none"
+          d="M264,38 L267,47 L276,50 L267,53 L264,62 L261,53 L252,50 L261,47 Z"
+        />
+        {/* R */}
+        <path stroke={silver} d="M324,86 V14 M318,20 H350 A15,15 0 0 1 350,50 H318 M346,50 L372,86" />
+        {/* A — open, no crossbar */}
+        <path stroke={silver} d="M390,86 L420,19 L450,86" />
+        {/* AI */}
+        <path stroke={blue} d="M494,86 L524,19 L554,86" />
+        <path stroke={blue} d="M582,14 V86" />
+      </g>
+    </svg>
+  );
+}
+
+export function Logo({ size = 20 }: { size?: number }) {
   return (
     <Link to="/" className="logo" aria-label="Nexora AI home">
-      <LogoMark />
-      <span>
-        <span className="logo-word">
-          NEXOR<span className="logo-a">A</span>
-        </span>
-        {withSub && <span className="logo-sub">AI CHAT BOT</span>}
-      </span>
+      <LogoMark size={Math.round(size * 1.7)} />
+      <Wordmark height={size} title="" />
     </Link>
   );
 }
@@ -203,7 +259,7 @@ export function Footer() {
       <div className="wrap">
         <div className="footer-inner">
           <div className="footer-brand">
-            <Logo withSub />
+            <Logo size={22} />
             <Tagline />
             <p className="tiny">
               Retrieval-grounded FAQ bots. Answers come from your sheet, not from

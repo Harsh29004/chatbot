@@ -1,5 +1,5 @@
 """
-LLM access: a chain of local Ollama models, then Groq as the last resort.
+LLM access: local Ollama models, then Groq, then Gemini (with key rotation).
 
 Three rules shape this module.
 
@@ -9,22 +9,31 @@ limited, the caller falls back to the behaviour it had before there was a
 model — a verbatim answer or a decline. A bot must not stop answering because
 an optional component is unavailable.
 
-**One saturated model is not an outage.** Generation walks a chain:
-``OLLAMA_MODELS`` in order, then ``GROQ_MODELS``. A model that answers 429
-(rate limited), 503 (busy), 5xx, 404 (not pulled), or times out is put on a
-short cooldown and the next one is tried. The cooldown means a model we know
-is saturated isn't re-hit on every request for the next minute.
+**One saturated model is not an outage.** Generation walks a chain, in the
+provider order ``LLM_PROVIDER_ORDER`` (default ``ollama,groq,gemini``):
+
+- ``OLLAMA_MODELS`` in order;
+- ``GROQ_MODELS`` in order;
+- ``GEMINI_MODELS`` in order, each tried with every key in
+  ``GEMINI_API_KEYS`` before moving to the next model. Free-tier quotas are
+  per project *per model*, so a model exhausted on one key usually still
+  answers on the next.
+
+A target that answers 429 (rate limited), 503 (busy), 5xx, 404 (missing), or
+times out is put on a cooldown and the next one is tried. A key that is
+rejected outright (bad, revoked, or disabled) benches every target using it.
 
 **It never sees more than it needs.** The grounded path passes retrieved
 passages and nothing else. Note the data-residency trade: the Ollama models
-run on this machine, but when the chain reaches Groq the prompt goes to a
-hosted API. Leave ``GROQ_API_KEY`` unset to keep every generation local.
+run on this machine, but Groq and Gemini are hosted APIs — when either one
+answers, the prompt has left the server. Leave their keys unset to stay local.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -36,17 +45,31 @@ from backend.shared import config
 
 logger = logging.getLogger(__name__)
 
-Provider = Literal["ollama", "groq"]
+Provider = Literal["ollama", "groq", "gemini"]
+HOSTED: tuple[str, ...] = ("groq", "gemini")
 
 
 @dataclass(frozen=True)
 class Target:
     provider: Provider
     model: str
+    # Which of the provider's keys this target uses. Only Gemini rotates keys;
+    # the index (never the key itself) is what appears in logs.
+    key_index: int = 0
 
     @property
     def label(self) -> str:
+        if self.provider == "gemini" and len(config.GEMINI_API_KEYS) > 1:
+            return f"gemini:{self.model}#key{self.key_index + 1}"
         return f"{self.provider}:{self.model}"
+
+    @property
+    def api_key(self) -> str:
+        if self.provider == "groq":
+            return config.GROQ_API_KEY
+        if self.provider == "gemini":
+            return config.GEMINI_API_KEYS[self.key_index]
+        return ""
 
 
 class _TryNext(Exception):
@@ -57,12 +80,21 @@ class _TryNext(Exception):
         self.cooldown = cooldown
 
 
+class _BadKey(_TryNext):
+    """The provider rejected the key itself; every target using it is benched."""
+
+
 # Status codes that mean "this model, not this request" — worth trying the
-# next model. A 400 would fail identically everywhere, but even that is safer
-# to pass along than to give up on, since providers disagree on validation.
+# next model.
 _RETRYABLE_STATUS = {404, 408, 409, 413, 429, 500, 502, 503, 504}
 
-# One shared client per thread keeps the Ollama connection warm.
+# Google answers an invalid or revoked key with 400 INVALID_ARGUMENT, not 401,
+# so a 400 has to be read before it can be told apart from a bad request.
+_BAD_KEY_TEXT = re.compile(
+    r"api[ _]?key|auth(entication)? key|unauthenticated|permission", re.IGNORECASE
+)
+
+# One shared client per thread keeps connections warm.
 _LOCAL = threading.local()
 
 # Availability is cached: a bot with the feature on would otherwise pay a
@@ -83,13 +115,27 @@ _last_used: str | None = None
 # The chain
 # ---------------------------------------------------------------------------
 
+def _provider_targets(provider: str, first_ollama_model: str | None = None) -> list[Target]:
+    if provider == "ollama":
+        models = list(config.OLLAMA_MODELS)
+        if first_ollama_model:
+            models = [first_ollama_model, *[m for m in models if m != first_ollama_model]]
+        return [Target("ollama", m) for m in models]
+    if provider == "groq" and config.GROQ_API_KEY:
+        return [Target("groq", m) for m in config.GROQ_MODELS]
+    if provider == "gemini" and config.GEMINI_API_KEYS:
+        return [
+            Target("gemini", m, i)
+            for m in config.GEMINI_MODELS
+            for i in range(len(config.GEMINI_API_KEYS))
+        ]
+    return []
+
+
 def _chain(first_ollama_model: str | None = None) -> list[Target]:
-    models = list(config.OLLAMA_MODELS)
-    if first_ollama_model:
-        models = [first_ollama_model, *[m for m in models if m != first_ollama_model]]
-    targets = [Target("ollama", m) for m in models]
-    if config.GROQ_API_KEY:
-        targets += [Target("groq", m) for m in config.GROQ_MODELS]
+    targets: list[Target] = []
+    for provider in config.LLM_PROVIDER_ORDER:
+        targets += _provider_targets(provider, first_ollama_model)
     return targets
 
 
@@ -104,11 +150,18 @@ def _cooling(target: Target) -> bool:
         return True
 
 
-def _cool(target: Target, reason: str, retry_after: float | None = None) -> None:
-    seconds = retry_after if retry_after and retry_after > 0 else config.LLM_COOLDOWN_SECONDS
+def _cool(target: Target, reason: str, seconds: float | None = None) -> None:
+    seconds = seconds if seconds and seconds > 0 else config.LLM_COOLDOWN_SECONDS
     with _cooldown_lock:
         _cooldowns[target.label] = time.monotonic() + seconds
     logger.warning("LLM %s unavailable (%s); skipping it for %.0fs.", target.label, reason, seconds)
+
+
+def _bench_key(target: Target, reason: str) -> None:
+    """A rejected key won't start working in a minute: bench it for every model."""
+    for other in _provider_targets(target.provider):
+        if other.key_index == target.key_index:
+            _cool(other, reason, config.LLM_BAD_KEY_COOLDOWN_SECONDS)
 
 
 def _cool_after_error(target: Target, exc: Exception, detail: str) -> None:
@@ -127,29 +180,44 @@ def _cool_after_error(target: Target, exc: Exception, detail: str) -> None:
 
 
 def _retry_after(response: httpx.Response) -> float | None:
+    """Seconds the provider asked us to wait: Retry-After, or Google's retryDelay."""
     try:
         return float(response.headers.get("retry-after", ""))
     except ValueError:
-        return None
+        pass
+    match = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', response.text or "")
+    return float(match.group(1)) if match else None
 
 
 def _check(response: httpx.Response, target: Target) -> None:
-    if response.status_code == 200:
+    status = response.status_code
+    if status == 200:
         return
-    if response.status_code in (401, 403):
-        # A bad Groq key won't fix itself in a minute, but cooling it keeps
-        # the log from repeating the same error on every request.
-        raise _TryNext(f"auth failed ({response.status_code})")
-    if response.status_code in _RETRYABLE_STATUS or response.status_code >= 500:
-        if response.status_code == 429:
-            _cool(target, "rate limited", _retry_after(response))
-            raise _TryNext("rate limited", cooldown=False)
-        raise _TryNext(f"HTTP {response.status_code}")
-    raise _TryNext(f"HTTP {response.status_code}", cooldown=False)
+    if status in (401, 403) or (
+        status == 400 and target.provider in HOSTED and _BAD_KEY_TEXT.search(response.text or "")
+    ):
+        raise _BadKey(f"key rejected ({status})")
+    if status == 429:
+        _cool(target, "rate limited", _retry_after(response))
+        raise _TryNext("rate limited", cooldown=False)
+    if status in _RETRYABLE_STATUS or status >= 500:
+        raise _TryNext(f"HTTP {status}")
+    raise _TryNext(f"HTTP {status}", cooldown=False)
 
 
-def _groq_headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {config.GROQ_API_KEY}"}
+def _handle_failure(target: Target, exc: _TryNext) -> None:
+    if isinstance(exc, _BadKey):
+        _bench_key(target, str(exc))
+    elif exc.cooldown:
+        _cool(target, str(exc))
+
+
+def _hosted_base_url(provider: str) -> str:
+    return config.GEMINI_BASE_URL if provider == "gemini" else config.GROQ_BASE_URL
+
+
+def _hosted_timeout(provider: str) -> float:
+    return config.GEMINI_TIMEOUT_SECONDS if provider == "gemini" else config.GROQ_TIMEOUT_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -167,14 +235,15 @@ def _ollama_client() -> httpx.Client:
     return client
 
 
-def _groq_client() -> httpx.Client:
-    client = getattr(_LOCAL, "groq", None)
+def _hosted_client(provider: str) -> httpx.Client:
+    """Groq and Gemini both speak the OpenAI chat-completions protocol."""
+    client = getattr(_LOCAL, provider, None)
     if client is None:
         client = httpx.Client(
-            base_url=config.GROQ_BASE_URL,
-            timeout=httpx.Timeout(config.GROQ_TIMEOUT_SECONDS, connect=5.0),
+            base_url=_hosted_base_url(provider),
+            timeout=httpx.Timeout(_hosted_timeout(provider), connect=5.0),
         )
-        _LOCAL.groq = client
+        setattr(_LOCAL, provider, client)
     return client
 
 
@@ -187,7 +256,7 @@ def available() -> bool:
     Whether any model in the chain is reachable right now.
 
     Cached for a few seconds, and must never raise. True when Ollama answers
-    its health check, or when a Groq key is configured to fall back on.
+    its health check, or when a Groq or Gemini key is configured.
 
     Gated on *either* feature flag, not just ``LLM_ENABLED``: bot rewording
     and the dashboard assistant are independent, and each caller still
@@ -215,9 +284,9 @@ def available() -> bool:
         except Exception as exc:  # noqa: BLE001 - availability check, never fatal
             logger.debug("Ollama unavailable at %s: %s", config.OLLAMA_BASE_URL, exc)
 
-        # Groq is checked by configuration, not by a network call: pinging a
-        # hosted API every 30s would spend its rate limit on health checks.
-        ok = ok or bool(config.GROQ_API_KEY and config.GROQ_MODELS)
+        # Hosted providers are checked by configuration, not by a network call:
+        # pinging them every 30s would spend their rate limits on health checks.
+        ok = ok or any(t.provider in HOSTED for t in _chain())
 
         _availability = (ok, time.monotonic())
         return ok
@@ -242,10 +311,10 @@ def _generate_ollama(target: Target, system: str, prompt: str, temperature: floa
     return (response.json().get("response") or "").strip()
 
 
-def _generate_groq(target: Target, system: str, prompt: str, temperature: float, max_tokens: int) -> str:
-    response = _groq_client().post(
+def _generate_hosted(target: Target, system: str, prompt: str, temperature: float, max_tokens: int) -> str:
+    response = _hosted_client(target.provider).post(
         "/chat/completions",
-        headers=_groq_headers(),
+        headers={"Authorization": f"Bearer {target.api_key}"},
         json={
             "model": target.model,
             "messages": [
@@ -289,11 +358,10 @@ def generate(
             continue
         started = time.monotonic()
         try:
-            call = _generate_groq if target.provider == "groq" else _generate_ollama
+            call = _generate_hosted if target.provider in HOSTED else _generate_ollama
             text = call(target, system, prompt, temperature, max_tokens)
         except _TryNext as exc:
-            if exc.cooldown:
-                _cool(target, str(exc))
+            _handle_failure(target, exc)
             continue
         except Exception as exc:  # noqa: BLE001 - timeouts, connection errors
             _cool_after_error(target, exc, f"{type(exc).__name__} after {time.monotonic() - started:.1f}s")
@@ -343,7 +411,7 @@ async def _stream_ollama(client: httpx.AsyncClient, target: Target, payload: dic
                 return
 
 
-async def _stream_groq(client: httpx.AsyncClient, target: Target, payload: dict) -> AsyncIterator[str]:
+async def _stream_hosted(client: httpx.AsyncClient, target: Target, payload: dict) -> AsyncIterator[str]:
     body = {
         "model": target.model,
         "messages": payload["messages"],
@@ -352,7 +420,10 @@ async def _stream_groq(client: httpx.AsyncClient, target: Target, payload: dict)
         "stream": True,
     }
     async with client.stream(
-        "POST", f"{config.GROQ_BASE_URL}/chat/completions", json=body, headers=_groq_headers()
+        "POST",
+        f"{_hosted_base_url(target.provider)}/chat/completions",
+        json=body,
+        headers={"Authorization": f"Bearer {target.api_key}"},
     ) as response:
         if response.status_code != 200:
             await response.aread()
@@ -407,15 +478,14 @@ async def chat_stream(
         for target in _chain(model or config.ASSISTANT_MODEL):
             if _cooling(target):
                 continue
-            streamer = _stream_groq if target.provider == "groq" else _stream_ollama
+            streamer = _stream_hosted if target.provider in HOSTED else _stream_ollama
             started_output = False
             try:
                 async for delta in streamer(client, target, payload):
                     started_output = True
                     yield delta
             except _TryNext as exc:
-                if exc.cooldown:
-                    _cool(target, str(exc))
+                _handle_failure(target, exc)
                 if started_output:
                     return
                 continue
@@ -447,7 +517,7 @@ def model_name() -> str:
 def chain_status() -> list[dict[str, object]]:
     """Each model in order, and whether it is currently being skipped."""
     return [
-        {"provider": t.provider, "model": t.model, "cooling_down": _cooling(t)}
+        {"target": t.label, "provider": t.provider, "model": t.model, "cooling_down": _cooling(t)}
         for t in _chain()
     ]
 

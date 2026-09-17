@@ -1,5 +1,6 @@
 """
-The model fallback chain: local Ollama models in order, then Groq.
+The model fallback chain: local Ollama models, then Groq, then Gemini with
+several keys.
 
 No real model is called — both providers are replaced by an in-process
 transport that answers however each test scripts it.
@@ -22,24 +23,39 @@ def _chain_config(monkeypatch):
     monkeypatch.setattr(config, "OLLAMA_MODELS", ["m1", "m2", "m3"])
     monkeypatch.setattr(config, "GROQ_API_KEY", "gsk_test")
     monkeypatch.setattr(config, "GROQ_MODELS", ["g1"])
+    monkeypatch.setattr(config, "GEMINI_API_KEYS", [])
+    monkeypatch.setattr(config, "GEMINI_MODELS", ["gm1", "gm2"])
+    monkeypatch.setattr(config, "LLM_PROVIDER_ORDER", ["ollama", "groq", "gemini"])
     monkeypatch.setattr(config, "LLM_COOLDOWN_SECONDS", 60)
     llm.reset_availability_cache()
     yield
     llm.reset_availability_cache()
 
 
+GEMINI_KEYS = ["gem_key_a", "gem_key_b", "gem_key_c"]
+
+
 def _install(monkeypatch, behaviour):
     """
     Route every provider call through ``behaviour(provider, model, stream)``,
     which returns ``(status, body)``. Returns the list of calls made.
+
+    Gemini calls are recorded as ``gemini:<model>#<n>``, where n is the
+    1-based index of the key that was sent.
     """
     calls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
-        provider = "groq" if "chat/completions" in request.url.path else "ollama"
+        host = request.url.host
+        provider = "gemini" if "gemini" in host else "groq" if "groq" in host else "ollama"
         model = payload["model"]
-        calls.append(f"{provider}:{model}")
+        if provider == "gemini":
+            key = request.headers["authorization"].removeprefix("Bearer ")
+            calls.append(f"gemini:{model}#{GEMINI_KEYS.index(key) + 1}")
+            model = f"{model}#{GEMINI_KEYS.index(key) + 1}"
+        else:
+            calls.append(f"{provider}:{model}")
         if provider == "groq":
             assert request.headers["authorization"] == "Bearer gsk_test"
         status, body = behaviour(provider, model, payload.get("stream", False))
@@ -51,8 +67,12 @@ def _install(monkeypatch, behaviour):
     monkeypatch.setattr(
         llm, "_ollama_client", lambda: httpx.Client(base_url="http://ollama.test", transport=transport)
     )
+    monkeypatch.setattr(config, "GROQ_BASE_URL", "http://groq.test")
+    monkeypatch.setattr(config, "GEMINI_BASE_URL", "http://gemini.test")
     monkeypatch.setattr(
-        llm, "_groq_client", lambda: httpx.Client(base_url="http://groq.test", transport=transport)
+        llm,
+        "_hosted_client",
+        lambda provider: httpx.Client(base_url=llm._hosted_base_url(provider), transport=transport),
     )
     monkeypatch.setattr(
         llm, "_async_client", lambda limit: httpx.AsyncClient(transport=transport, timeout=limit)
@@ -193,3 +213,101 @@ def test_an_unreachable_ollama_server_benches_every_local_model_at_once(monkeypa
     calls = _install(monkeypatch, behaviour)
     assert llm.generate(system="s", prompt="p") == "from groq"
     assert calls == ["ollama:m1", "groq:g1"]
+
+
+# ---------------------------------------------------------------------------
+# Gemini and key rotation
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def gemini_only(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEYS", list(GEMINI_KEYS))
+    monkeypatch.setattr(config, "LLM_PROVIDER_ORDER", ["gemini"])
+
+
+def test_gemini_comes_after_groq(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEYS", list(GEMINI_KEYS))
+
+    def behaviour(provider, model, stream):
+        return _groq_ok("from gemini") if provider == "gemini" else (503, {})
+
+    calls = _install(monkeypatch, behaviour)
+    assert llm.generate(system="s", prompt="p") == "from gemini"
+    assert calls == ["ollama:m1", "ollama:m2", "ollama:m3", "groq:g1", "gemini:gm1#1"]
+    assert llm.model_name() == "gemini:gm1#key1"
+
+
+def test_a_rate_limited_gemini_key_switches_to_the_next_key(monkeypatch, gemini_only):
+    def behaviour(provider, model, stream):
+        return (429, {}) if model in ("gm1#1", "gm1#2") else _groq_ok(f"answered by {model}")
+
+    calls = _install(monkeypatch, behaviour)
+    assert llm.generate(system="s", prompt="p") == "answered by gm1#3"
+    assert calls == ["gemini:gm1#1", "gemini:gm1#2", "gemini:gm1#3"]
+
+    # The two exhausted keys are skipped for this model on the next request.
+    calls.clear()
+    llm.generate(system="s", prompt="p")
+    assert calls == ["gemini:gm1#3"]
+
+
+def test_every_key_exhausted_on_a_model_moves_to_the_next_model(monkeypatch, gemini_only):
+    def behaviour(provider, model, stream):
+        return (429, {}) if model.startswith("gm1") else _groq_ok("second model")
+
+    calls = _install(monkeypatch, behaviour)
+    assert llm.generate(system="s", prompt="p") == "second model"
+    assert calls == ["gemini:gm1#1", "gemini:gm1#2", "gemini:gm1#3", "gemini:gm2#1"]
+
+
+def test_a_rejected_key_is_benched_for_every_model(monkeypatch, gemini_only):
+    # Google reports an invalid key as 400, not 401.
+    bad_key = (400, [{"error": {"code": 400, "message": "Invalid Auth key.", "status": "INVALID_ARGUMENT"}}])
+
+    def behaviour(provider, model, stream):
+        return bad_key if model.endswith("#1") else _groq_ok("ok")
+
+    calls = _install(monkeypatch, behaviour)
+    assert llm.generate(system="s", prompt="p") == "ok"
+    assert calls == ["gemini:gm1#1", "gemini:gm1#2"]
+
+    status = {row["target"]: row["cooling_down"] for row in llm.chain_status()}
+    assert status["gemini:gm1#key1"] and status["gemini:gm2#key1"]
+    assert not status["gemini:gm1#key2"]
+
+
+def test_a_plain_bad_request_does_not_bench_the_key(monkeypatch, gemini_only):
+    def behaviour(provider, model, stream):
+        return (400, {"error": {"message": "max_tokens too large"}}) if model == "gm1#1" else _groq_ok("ok")
+
+    _install(monkeypatch, behaviour)
+    llm.generate(system="s", prompt="p")
+    status = {row["target"]: row["cooling_down"] for row in llm.chain_status()}
+    assert not status["gemini:gm2#key1"]
+
+
+def test_googles_retry_delay_sets_the_cooldown(monkeypatch, gemini_only):
+    body = [{"error": {"code": 429, "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "7s"}]}}]
+    response = httpx.Response(429, json=body)
+    assert llm._retry_after(response) == 7.0
+
+
+def test_gemini_streams_on_the_next_key(monkeypatch, gemini_only):
+    def behaviour(provider, model, stream):
+        return (503, {}) if model == "gm1#1" else _groq_stream("Hi ", "there")
+
+    calls = _install(monkeypatch, behaviour)
+    assert _collect() == "Hi there"
+    assert calls == ["gemini:gm1#1", "gemini:gm1#2"]
+
+
+def test_removing_a_provider_from_the_order_skips_it(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEYS", list(GEMINI_KEYS))
+    monkeypatch.setattr(config, "LLM_PROVIDER_ORDER", ["gemini", "ollama"])
+    assert [t.provider for t in llm._chain()][:1] == ["gemini"]
+    assert "groq" not in {t.provider for t in llm._chain()}
+
+
+def test_keys_never_appear_in_labels(monkeypatch, gemini_only):
+    for target in llm._chain():
+        assert not any(key in target.label for key in GEMINI_KEYS)

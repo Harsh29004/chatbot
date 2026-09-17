@@ -190,9 +190,34 @@ GROQ_MODELS: list[str] = _csv(
 )
 GROQ_TIMEOUT_SECONDS: float = float(os.getenv("GROQ_TIMEOUT_SECONDS", "30"))
 
+# Gemini, reached through Google's OpenAI-compatible endpoint. Several keys
+# may be given (comma-separated): each model is tried on every key before the
+# next model, because free-tier quotas are per project per model. Hosted, like
+# Groq — prompts leave this machine when Gemini answers.
+GEMINI_API_KEYS: list[str] = list(dict.fromkeys(
+    _csv(os.getenv("GEMINI_API_KEYS", "")) + _csv(os.getenv("GEMINI_API_KEY", ""))
+))
+GEMINI_BASE_URL: str = os.getenv(
+    "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"
+)
+GEMINI_MODELS: list[str] = _csv(
+    os.getenv("GEMINI_MODELS", "gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.8-flash")
+)
+GEMINI_TIMEOUT_SECONDS: float = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))
+
+# Which providers are tried, in order. Drop one to disable it entirely.
+LLM_PROVIDER_ORDER: list[str] = [
+    p.lower() for p in _csv(os.getenv("LLM_PROVIDER_ORDER", "ollama,groq,gemini"))
+    if p.lower() in ("ollama", "groq", "gemini")
+]
+
 # How long a rate-limited or failing model is skipped before being tried
 # again. Without it every request would re-hit a model we know is saturated.
 LLM_COOLDOWN_SECONDS: float = float(os.getenv("LLM_COOLDOWN_SECONDS", "60"))
+
+# A key the provider rejects outright (invalid, revoked, disabled) is skipped
+# much longer: it won't start working on its own.
+LLM_BAD_KEY_COOLDOWN_SECONDS: float = float(os.getenv("LLM_BAD_KEY_COOLDOWN_SECONDS", "3600"))
 
 # Sampling. Low temperature because the job is faithful rephrasing, not
 # invention — creativity here is the failure mode, not the feature.
