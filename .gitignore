@@ -35,3 +35,34 @@ Thumbs.db
 
 # TS build cache
 frontend/*.tsbuildinfo
+
+# Firebase service account keys. These are private keys that can mint
+# credentials for any user in the project — the values live in .env (which is
+# already ignored above), and the downloaded JSON should never be committed.
+*firebase-adminsdk*.json
+serviceAccountKey.json
+firebase-service-account*.json
+.firebase/
+
+# ---------------------------------------------------------------------------
+# Added for the three-service layout
+# ---------------------------------------------------------------------------
+# The old rules named `frontend/` explicitly, so they stopped matching the
+# moment that folder moved to `_old/` — which left 20,000 files of
+# node_modules staged to be committed. These are path-independent on purpose.
+**/node_modules/
+**/.next/
+**/dist/
+**/.venv/
+**/__pycache__/
+**/*.tsbuildinfo
+next-env.d.ts
+
+# Secrets. `.env` was already here; the backup made when migrating it was not,
+# and it holds exactly the same live credentials.
+.env.backup
+.env.*.local
+.env.local
+
+# Local test scratch
+faq-test.csv

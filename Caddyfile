@@ -1,24 +1,56 @@
-# TLS and reverse proxy for Nexora AI.
+# TLS and routing for the published site.
 #
-# Caddy gets a Let's Encrypt certificate for SITE_DOMAIN on first boot and
-# renews it on its own. Nothing here needs editing — set SITE_DOMAIN in .env.
+# Two upstreams now instead of one, because the frontend runs its own server:
+# Next.js renders the pages, the Node API answers /api, /v1 and /widget. Caddy
+# decides which by path.
 #
-# Port 80 must be reachable from the internet or the ACME challenge fails and
-# you get no certificate. Caddy redirects it to 443 once the cert is issued.
+# Order matters — Caddy evaluates `handle` blocks in order, and the bare
+# `handle` at the end is the fallback, so the API paths have to be matched
+# first or Next would swallow them.
 
 {$SITE_DOMAIN} {
-	reverse_proxy nexora:8000 {
-		# The dashboard assistant streams server-sent events. Without this the
-		# proxy buffers the whole answer and the user watches a spinner until
-		# the generation finishes instead of watching the text arrive.
-		flush_interval -1
-	}
-
 	encode gzip
 
+	# The API. Everything the browser, an installed widget or a customer's own
+	# server calls directly.
+	#
+	#   /api/*     the dashboard and admin, session-cookie authenticated
+	#   /v1/*      the public bot API, X-Api-Key authenticated
+	#   /widget/*  hosted widget scripts
+	#   /health    liveness
+	handle /api/* {
+		reverse_proxy api:8000 {
+			# Disable response buffering. The dashboard assistant streams its
+			# reply as server-sent events, and a buffered proxy holds the whole
+			# answer until generation finishes — which on a small box is a
+			# minute of a blank screen, and is indistinguishable from broken.
+			flush_interval -1
+		}
+	}
+
+	handle /v1/* {
+		reverse_proxy api:8000 {
+			flush_interval -1
+		}
+	}
+
+	handle /widget/* {
+		reverse_proxy api:8000
+	}
+
+	handle /health {
+		reverse_proxy api:8000
+	}
+
+	# Everything else is the web app. Server-rendered, so this is a running
+	# Next.js server rather than a folder of static files.
+	handle {
+		reverse_proxy web:3000 {
+			flush_interval -1
+		}
+	}
+
 	header {
-		# The app is HTTPS-only once this is in front of it, and the session
-		# cookie is Secure, so committing to HSTS costs nothing.
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"

@@ -1,42 +1,37 @@
-# ---------------------------------------------------------------------------
-# Nexora AI — the whole product on one machine.
+# Nexora AI — production compose.
 #
-# Sized for an Oracle Cloud Always Free ARM instance (2 OCPU / 12 GB), which is
-# the deployment this is tuned for. Memory limits are set explicitly and add up
-# to ~10 GB, leaving the OS its share: without them the kernel picks what to
-# kill when Ollama loads a model, and it will not pick the thing you would.
+# Four services where there used to be two, because the backend is split:
 #
-# See DEPLOY.md for provisioning the box and pulling the model.
-# ---------------------------------------------------------------------------
+#   web          Next.js, server-rendered            :3000
+#   api          Node + Express                      :8000  (the public one)
+#   bot-service  Python: embeddings, retrieval       :8001  (internal only)
+#   ollama       optional local models               :11434 (internal only)
+#   caddy        TLS, under the `tls` profile        :80/:443
+#
+# Only `web` and `api` are reachable from outside, and even then only through
+# Caddy. `bot-service` and `ollama` have no `ports:` at all — they are on the
+# compose network and nothing else.
+#
+#   docker compose up -d --build                  # no TLS, for a quick look
+#   docker compose --profile tls up -d --build    # with a real domain
+#   docker compose --profile llm up -d            # add local models
+#
+# Settings come from a `.env` file next to this one.
 
 services:
-  # Opt-in. `docker compose up -d` leaves this stopped; bring it up with
-  # `docker compose --profile llm up -d` once you actually want the assistant
-  # and grounded rewording. The FAQ bot does not need it and never has — it
-  # answers from the vector index in ~18ms with no model in the path.
+
+  # ---------------------------------------------------------------------------
+  # Optional local models
+  # ---------------------------------------------------------------------------
+  # Deliberately no `ports:` — nothing outside this compose network should be
+  # able to reach an unauthenticated model server.
   ollama:
     profiles: ["llm"]
     image: ollama/ollama:latest
     restart: unless-stopped
-    # Deliberately no `ports:` — nothing outside this compose network should be
-    # able to reach an unauthenticated model server. The app talks to it over
-    # the internal network by service name.
-    expose:
-      - "11434"
     volumes:
       - ollama-models:/root/.ollama
-    environment:
-      # Keep the model resident. Reloading 4.7 GB from disk on two ARM cores
-      # takes tens of seconds, and on a low-traffic app almost every request
-      # would pay it. The cost is that the RAM stays committed — which is why
-      # the limits below are explicit.
-      - OLLAMA_KEEP_ALIVE=-1
-      # One model, one generation at a time. Two concurrent generations on this
-      # hardware don't run in parallel in any useful sense; they just make both
-      # slower and double the peak memory.
-      - OLLAMA_MAX_LOADED_MODELS=1
-      - OLLAMA_NUM_PARALLEL=1
-    mem_limit: 7g
+    mem_limit: 8g
     healthcheck:
       test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -44,93 +39,250 @@ services:
       retries: 3
       start_period: 30s
 
-  nexora:
-    build: .
+  # ---------------------------------------------------------------------------
+  # The bot pipeline — Python
+  # ---------------------------------------------------------------------------
+  # Retrieval, embeddings, sheet ingestion, templates, the widget. No users, no
+  # cookies, no credits: the API resolves who is asking before forwarding
+  # anything here.
+  #
+  # No `ports:`. It is reachable only as `bot-service:8001` on this network.
+  bot-service:
+    build:
+      context: ./bot-service
+      args:
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
     restart: unless-stopped
+    # The embedding model and torch live here. This is the memory-hungry one.
+    mem_limit: 3g
+    environment:
+      - MONGO_URI=${MONGO_URI:?set MONGO_URI before starting}
+      - MONGO_DB_NAME=${MONGO_DB_NAME:-nexora}
+      - MONGO_TIMEOUT_MS=${MONGO_TIMEOUT_MS:-8000}
+
+      # Shared with the API. Not a user credential — it only answers "did this
+      # come from our own backend". Both services must agree.
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY before starting}
+
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - STRONG_MATCH_THRESHOLD=${STRONG_MATCH_THRESHOLD:-0.85}
+      - NEAR_MATCH_THRESHOLD=${NEAR_MATCH_THRESHOLD:-0.60}
+      - TOP_K=${TOP_K:-3}
+
+      # Grounded rewording. The model only ever sees rows retrieval already
+      # found, and its output is checked back against them.
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_MIN_GROUNDEDNESS=${LLM_MIN_GROUNDEDNESS:-0.72}
+      - LLM_PROVIDER_ORDER=${LLM_PROVIDER_ORDER:-ollama,groq,gemini}
+      - LLM_COOLDOWN_SECONDS=${LLM_COOLDOWN_SECONDS:-60}
+      - LLM_BAD_KEY_COOLDOWN_SECONDS=${LLM_BAD_KEY_COOLDOWN_SECONDS:-3600}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.1}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-400}
+      - LLM_MAX_INPUT_CHARS=${LLM_MAX_INPUT_CHARS:-2000}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+      - OLLAMA_MODELS=${OLLAMA_MODELS:-qwen2.5:7b,llama3.1:8b,gemma2:9b}
+      - OLLAMA_TIMEOUT_SECONDS=${OLLAMA_TIMEOUT_SECONDS:-20}
+      # Groq and Gemini are HOSTED. When either answers, the prompt — including
+      # retrieved sheet rows — has left this machine. Leave unset to stay local.
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODELS=${GROQ_MODELS:-qwen/qwen3.8-27b,openai/gpt-oss-120b,openai/gpt-oss-20b}
+      - GROQ_TIMEOUT_SECONDS=${GROQ_TIMEOUT_SECONDS:-30}
+      - GEMINI_API_KEYS=${GEMINI_API_KEYS:-}
+      - GEMINI_MODELS=${GEMINI_MODELS:-gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.8-flash}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-30}
+    healthcheck:
+      # Python is already in the image; curl is not.
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The model loads at startup, which takes a while on a small box. Without
+      # a generous start_period the container is marked unhealthy and restarted
+      # in a loop, never getting far enough to finish loading.
+      start_period: 180s
+
+  # ---------------------------------------------------------------------------
+  # The API — Node + Express
+  # ---------------------------------------------------------------------------
+  # The only service the internet talks to. Authenticates, meters credits,
+  # resolves the account, forwards to bot-service.
+  api:
+    build:
+      context: ./node-backend
+    restart: unless-stopped
+    depends_on:
+      bot-service:
+        # Not `service_started`: the API health-checks bot-service at startup
+        # and would log a warning about an unreachable dependency that is
+        # simply still loading its model.
+        condition: service_healthy
     # Bound to loopback, not 0.0.0.0. Caddy terminates TLS and reaches this
     # over the compose network by service name; the published port exists so
     # you can curl it from an SSH session while debugging. Publishing it
     # publicly would let anyone bypass TLS by asking for :8000 directly.
     ports:
       - "127.0.0.1:8000:8000"
-    mem_limit: 3g
+    mem_limit: 1g
     environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      # Where to find the bot pipeline, and the secret it expects.
+      - BOT_SERVICE_URL=http://bot-service:8001
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY before starting}
+      - BOT_SERVICE_TIMEOUT_MS=${BOT_SERVICE_TIMEOUT_MS:-60000}
+      - BOT_SERVICE_INGEST_TIMEOUT_MS=${BOT_SERVICE_INGEST_TIMEOUT_MS:-300000}
+      # Compared against what bot-service reports at startup. A mismatch is
+      # warned about loudly, because it otherwise surfaces much later as
+      # "search stopped finding anything".
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+
       # Secrets — set these in a .env file next to this compose file.
       - ADMIN_API_KEY=${ADMIN_API_KEY:?set ADMIN_API_KEY before starting}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - ADMIN_SESSION_HOURS=${ADMIN_SESSION_HOURS:-12}
 
-      # Everything is stored in MongoDB — accounts, billing, FAQ vectors,
-      # rate limits — on a managed cluster rather than in a container, so a
-      # database holding customers and payments doesn't share a lifecycle
-      # with the app image, and the app itself keeps no data on disk.
+      # Everything is stored in MongoDB — accounts, billing, FAQ vectors, rate
+      # limits — on a managed cluster rather than in a container, so a database
+      # holding customers and payments doesn't share a lifecycle with an image,
+      # and no service keeps data on disk.
       - MONGO_URI=${MONGO_URI:?set MONGO_URI before starting}
       - MONGO_DB_NAME=${MONGO_DB_NAME:-nexora}
+      - MONGO_TIMEOUT_MS=${MONGO_TIMEOUT_MS:-8000}
 
-      # The SPA is served from this same origin in the container, so the
-      # browser origin is whatever the site is published at.
-      - WEB_ORIGINS=${WEB_ORIGINS:-http://localhost:8000}
-      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
+      # The browser reaches the API through the web service on the same origin,
+      # so this is whatever the site is published at.
+      - WEB_ORIGINS=${WEB_ORIGINS:-http://localhost:3000}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:3000}
       # The API origin written into widget packages and hosted widget scripts.
       # Set it to https://<your domain>: customers' HTTPS sites cannot call an
       # http:// API, the browser blocks it as mixed content.
       - PUBLIC_API_ORIGIN=${PUBLIC_API_ORIGIN:-}
+      # Caddy and the web service both sit in front of this.
+      - TRUST_PROXY_HOPS=${TRUST_PROXY_HOPS:-2}
 
-      # Retrieval tuning (templates override the thresholds per bot)
-      - STRONG_MATCH_THRESHOLD=${STRONG_MATCH_THRESHOLD:-0.85}
-      - NEAR_MATCH_THRESHOLD=${NEAR_MATCH_THRESHOLD:-0.60}
+      # Firebase Authentication — the server-side credential that VERIFIES the
+      # ID token a browser brings back. This is a private key: it can mint
+      # credentials for any user in the project. Keep it in the .env file next
+      # to this compose file, never in an image, never in a NEXT_PUBLIC_ one.
+      #
+      # The PEM's newlines are stored escaped (backslash-n) and unescaped on
+      # read. Quote the value in .env or the shell eats the escapes.
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:-}
+      - FIREBASE_SERVICE_ACCOUNT_JSON=${FIREBASE_SERVICE_ACCOUNT_JSON:-}
+      - FIREBASE_REQUIRE_VERIFIED_EMAIL=${FIREBASE_REQUIRE_VERIFIED_EMAIL:-true}
+      - FIREBASE_CLOCK_SKEW_SECONDS=${FIREBASE_CLOCK_SKEW_SECONDS:-30}
 
-      # Billing. Leave BILLING_ALLOW_MANUAL false anywhere real — it activates
-      # plans without taking payment.
+      # Sessions. Required with HTTPS, or nobody stays signed in.
+      - COOKIE_SECURE=${BILLING_COOKIE_SECURE:-false}
+      - BILLING_COOKIE_SECURE=${BILLING_COOKIE_SECURE:-false}
+      - PBKDF2_ITERATIONS=${PBKDF2_ITERATIONS:-600000}
+
+      - TELEMETRY_ENABLED=${TELEMETRY_ENABLED:-true}
+      - TELEMETRY_MAX_ERRORS_PER_IP_PER_HOUR=${TELEMETRY_MAX_ERRORS_PER_IP_PER_HOUR:-60}
+      - TELEMETRY_RETENTION_DAYS=${TELEMETRY_RETENTION_DAYS:-30}
+
       - BILLING_PROVIDER=${BILLING_PROVIDER:-manual}
       - BILLING_ALLOW_MANUAL=${BILLING_ALLOW_MANUAL:-false}
-      - BILLING_COOKIE_SECURE=${BILLING_COOKIE_SECURE:-false}
+      - BILLING_CURRENCY=${BILLING_CURRENCY:-USD}
       - PAID_DAILY_CREDITS=${PAID_DAILY_CREDITS:-5000}
       - DAILY_CREDIT_LIMIT=${DAILY_CREDIT_LIMIT:-250}
+      - TRIAL_DAYS=${TRIAL_DAYS:-14}
+      - TRIAL_DAILY_CREDITS=${TRIAL_DAILY_CREDITS:-250}
+      - ENTITLEMENT_SWEEP_SECONDS=${ENTITLEMENT_SWEEP_SECONDS:-900}
 
-      # Google sign-in. Blank means password-only; the button hides itself.
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
-      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/auth/google/callback}
-      - GOOGLE_CLOCK_SKEW_SECONDS=${GOOGLE_CLOCK_SKEW_SECONDS:-30}
-      - GOOGLE_PROMPT=${GOOGLE_PROMPT:-select_account consent}
+      - MAX_KEYS_PER_ACCOUNT=${MAX_KEYS_PER_ACCOUNT:-10}
+      - MAX_SIGNUPS_PER_IP_PER_DAY=${MAX_SIGNUPS_PER_IP_PER_DAY:-3}
+      - BLOCK_DISPOSABLE_EMAILS=${BLOCK_DISPOSABLE_EMAILS:-true}
 
-      # The local model. Reached by service name over the compose network.
+      - REFERRAL_REFERRER_CREDITS=${REFERRAL_REFERRER_CREDITS:-100}
+      - REFERRAL_REFERRED_CREDITS=${REFERRAL_REFERRED_CREDITS:-50}
+      - REFERRAL_TOPUP_CREDITS=${REFERRAL_TOPUP_CREDITS:-100}
+
+      # The dashboard assistant streams from a model. Its own LLM settings,
+      # separate from the bot's grounded rewording.
+      - ASSISTANT_ENABLED=${ASSISTANT_ENABLED:-false}
+      - ASSISTANT_MODEL=${ASSISTANT_MODEL:-}
+      - ASSISTANT_DAILY_MESSAGES=${ASSISTANT_DAILY_MESSAGES:-100}
+      - ASSISTANT_CONCURRENCY=${ASSISTANT_CONCURRENCY:-1}
+      - ASSISTANT_TIMEOUT_SECONDS=${ASSISTANT_TIMEOUT_SECONDS:-180}
+      - ASSISTANT_TEMPERATURE=${ASSISTANT_TEMPERATURE:-0.7}
+      - ASSISTANT_MAX_TOKENS=${ASSISTANT_MAX_TOKENS:-1024}
+      - ASSISTANT_HISTORY_TURNS=${ASSISTANT_HISTORY_TURNS:-12}
+      - ASSISTANT_MAX_MESSAGE_CHARS=${ASSISTANT_MAX_MESSAGE_CHARS:-4000}
+      - ASSISTANT_QUEUE_WAIT_SECONDS=${ASSISTANT_QUEUE_WAIT_SECONDS:-20}
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_PROVIDER_ORDER=${LLM_PROVIDER_ORDER:-ollama,groq,gemini}
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
-
-      # The fallback chain: these local models in order, then Groq. Every
-      # variable must be listed here — compose only reads .env to fill in
-      # ${...}, so a key set in .env but missing from this list never reaches
-      # the container.
       - OLLAMA_MODELS=${OLLAMA_MODELS:-qwen2.5:7b,llama3.1:8b,gemma2:9b}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - GROQ_MODELS=${GROQ_MODELS:-qwen/qwen3.8-27b,openai/gpt-oss-120b,openai/gpt-oss-20b}
-      - GROQ_TIMEOUT_SECONDS=${GROQ_TIMEOUT_SECONDS:-30}
-      - LLM_COOLDOWN_SECONDS=${LLM_COOLDOWN_SECONDS:-60}
-      - LLM_BAD_KEY_COOLDOWN_SECONDS=${LLM_BAD_KEY_COOLDOWN_SECONDS:-3600}
       - GEMINI_API_KEYS=${GEMINI_API_KEYS:-}
       - GEMINI_MODELS=${GEMINI_MODELS:-gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.8-flash}
-      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-30}
-      - LLM_PROVIDER_ORDER=${LLM_PROVIDER_ORDER:-ollama,groq,gemini}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
-      # Grounded rewording for customer bots. Off unless you turn it on, and
-      # each bot still opts in separately from its dashboard.
-      - LLM_ENABLED=${LLM_ENABLED:-false}
-      - LLM_MIN_GROUNDEDNESS=${LLM_MIN_GROUNDEDNESS:-0.72}
+  # ---------------------------------------------------------------------------
+  # The web app — Next.js
+  # ---------------------------------------------------------------------------
+  # Server-rendered, so this runs a Node server rather than serving static
+  # files. It proxies /api, /v1 and /widget to the API for the browser, and
+  # calls the API directly from Server Components.
+  web:
+    build:
+      context: ./next-frontend
+      # NEXT_PUBLIC_* is inlined at BUILD time. Putting these under
+      # `environment:` would set them long after the bundle was compiled, and
+      # the app would ship with sign-in silently disabled.
+      #
+      # These are public values in the JavaScript every visitor downloads. The
+      # service account private key is not among them and never should be — it
+      # belongs to `api` above, at run time only.
+      args:
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:-}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID:-}
+        NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_PUBLIC_API_ORIGIN: ${PUBLIC_API_ORIGIN:-}
+        NEXT_PUBLIC_APP_RELEASE: ${NEXT_PUBLIC_APP_RELEASE:-docker}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    mem_limit: 1g
+    environment:
+      # Read at RUN time. The first is used by the rewrite that proxies /api
+      # for the browser; the second by Server Components calling the API
+      # directly, which cannot use a relative URL.
+      - API_ORIGIN=http://api:8000
+      - INTERNAL_API_ORIGIN=http://api:8000
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
-      # The dashboard assistant. Website-only; no API key can reach it.
-      - ASSISTANT_ENABLED=${ASSISTANT_ENABLED:-false}
-      - ASSISTANT_DAILY_MESSAGES=${ASSISTANT_DAILY_MESSAGES:-100}
-      - ASSISTANT_CONCURRENCY=${ASSISTANT_CONCURRENCY:-1}
-
-  # TLS. Opt-in for the same reason as Ollama: on a laptop this would fight
-  # for ports 80 and 443 and fail to get a certificate. On the server it is
-  # the front door — `docker compose --profile tls up -d`.
-  #
-  # Certificates need port 80 reachable from the internet for the ACME
-  # challenge, so open 80 as well as 443 even though the site itself redirects.
+  # ---------------------------------------------------------------------------
+  # TLS
+  # ---------------------------------------------------------------------------
+  # Fetches and renews a Let's Encrypt certificate on its own. Needs a real
+  # domain pointed at this machine and ports 80/443 open.
   caddy:
     profiles: ["tls"]
     image: caddy:2-alpine
@@ -144,6 +296,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    depends_on:
+      - web
+      - api
 
 volumes:
   ollama-models:

@@ -6,6 +6,13 @@
 .git
 .gitignore
 
+# Firebase service account keys. The backend reads these from the environment
+# at run time; a copy baked into an image layer is a private key that ships
+# with every pull of that image and survives being deleted in a later layer.
+*firebase-adminsdk*.json
+serviceAccountKey.json
+firebase-service-account*.json
+
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -20,6 +27,13 @@ chroma_data/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+
+# Media and archives: they have no business in the image, and they make the
+# build context (and every `docker compose build`) needlessly slow.
+*.mp4
+*.mov
+*.png
+*.jpg
 
 .vscode/
 .idea/

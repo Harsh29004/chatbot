@@ -221,7 +221,7 @@ pipeline, not with the text.**
 | `payments.py` | Hosted-checkout adapters | **No card number ever touches this server.** Both real providers currently raise rather than silently granting access. |
 | `entitlements.py` (61 ln) | The bridge between *paying* and *may use* | The most important file in the folder — see below. |
 | `router.py` | Auth, billing, dashboard, key issue/revoke | Session is an **httpOnly cookie, not localStorage**. A stored token is readable by any injected script; an httpOnly cookie is not. |
-| `google_oauth.py` | Google sign-in, server-side code flow | The browser never holds a Google credential. Three guards: verified signature, checked `state`, and linking only on `email_verified`. |
+| `firebase_auth.py` | Verifies the ID token a Firebase sign-in returns | Firebase runs the sign-in; this turns its result into our own session cookie, so one thing still decides identity. Three guards: verified signature against this project, revocation checked, and linking only on `email_verified`. |
 
 **Why `entitlements.py` exists at all.** Two stores have to agree: billing knows
 whether a subscription is live, `api_keys` knows the daily allowance. Its own

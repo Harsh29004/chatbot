@@ -1,0 +1,46 @@
+{
+  "name": "nexora-ai-backend",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Nexora AI — Express + TypeScript backend (converted from FastAPI).",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "create-owner-key": "tsx src/scripts/createOwnerKey.ts"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "fast-xml-parser": "^4.5.1",
+    "fflate": "^0.8.2",
+    "firebase-admin": "^13.0.2",
+    "mongodb": "^6.12.0",
+    "multer": "^2.4.0",
+    "node-html-parser": "^6.1.13",
+    "papaparse": "^5.4.1",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.10.5",
+    "@types/papaparse": "^5.3.15",
+    "@types/pdf-parse": "^1.1.4",
+    "mongodb-memory-server": "^10.4.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

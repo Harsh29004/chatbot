@@ -23,7 +23,8 @@ internet ──443──▶ Caddy (TLS) ──▶ nexora container ──▶ Mon
 6. [Create the database](#6-create-the-database)
 7. [Get the code and configure](#7-get-the-code-and-configure)
 8. [Start it](#8-start-it)
-9. [Optional: Google sign-in](#9-optional-google-sign-in)
+8b. [Check it end to end](#8b-check-it-end-to-end)
+9. [Optional: Firebase sign-in](#9-optional-firebase-sign-in)
 10. [Optional: LLM features](#10-optional-llm-features)
 11. [Updating](#11-updating)
 12. [Backups](#12-backups)
@@ -35,10 +36,24 @@ internet ──443──▶ Caddy (TLS) ──▶ nexora container ──▶ Mon
 
 | You need | Notes |
 |---|---|
+| The code | This project, as a zip or a git clone (step 7). |
 | Oracle Cloud account | Always Free tier. A card is verified but not charged. |
-| A domain name | A free [DuckDNS](https://www.duckdns.org) subdomain works. Google sign-in won't accept a bare IP address. |
+| A domain name | A free [DuckDNS](https://www.duckdns.org) subdomain works. Firebase won't authorise a bare IP address. |
 | MongoDB | A free Atlas M0 cluster (step 6). |
 | Optional API keys | Groq and/or Gemini, for the LLM features (step 10). |
+
+**If someone else owns the project**, ask them for these before you start —
+none of them are in the code, and the site won't fully work without them:
+
+| Value | Needed for | Without it |
+|---|---|---|
+| `MONGO_URI` | The database | The app won't start |
+| Firebase service account (JSON or the 3 fields) | Verifying Google sign-in on the server | Google sign-in refused |
+| `NEXT_PUBLIC_FIREBASE_*` web config | The sign-in button in the browser | No "Continue with Google" button |
+| `GROQ_API_KEY`, `GEMINI_API_KEYS` | The assistant and rewording | Those features stay off; the FAQ bot still works |
+
+Everything else (`ADMIN_PASSWORD`, `ADMIN_API_KEY`) you generate yourself in
+step 7.
 
 Throughout this guide, replace `yourname.duckdns.org` with your own domain.
 
@@ -123,7 +138,20 @@ cluster, then:
 
 ## 7. Get the code and configure
 
-Install Git LFS **before** cloning, or images arrive as small text files:
+**From a zip** (what you have if the project was handed to you):
+
+```bash
+sudo apt install -y unzip
+# copy the zip up from your own machine first:
+#   scp -i path/to/private.key nexora-ai-*.zip ubuntu@<public-ip>:~
+unzip nexora-ai-*.zip        # unpacks into nexora-ai/
+cd nexora-ai
+cp .env.example .env
+nano .env
+```
+
+**Or from git**, if you have access to the repository. Install Git LFS first,
+or images arrive as small text files:
 
 ```bash
 git lfs install
@@ -154,8 +182,24 @@ MONGO_URI=mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/?retryWrites=tr
 MONGO_DB_NAME=nexora
 
 # --- Admin ---
-# Generate it: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-ADMIN_API_KEY=<paste the generated value>
+# Generate both: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+# ADMIN_API_KEY is for scripts. The username and password are what you sign in
+# with at /admin and /admin/support; leaving the password empty disables that
+# sign-in entirely.
+ADMIN_API_KEY=<paste a generated value>
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<paste another generated value>
+```
+
+Then, if you have them, add the Firebase values (step 9) and the LLM keys
+(step 10) to the same file. Two more are worth knowing about, both already in
+`.env.example` with sensible defaults:
+
+```bash
+# Browser error reports and page timings, stored in MongoDB and shown in the
+# admin panel. Set to false to collect nothing.
+TELEMETRY_ENABLED=true
+TELEMETRY_RETENTION_DAYS=30
 ```
 
 Keep a few rules in mind:
@@ -174,15 +218,39 @@ Keep a few rules in mind:
 docker compose --profile tls up -d --build
 ```
 
-The first build takes **15–30 minutes** on two ARM cores. Most of it is
-installing torch and baking the embedding model into the image, so the first
-request after a restart isn't slow.
+This builds four services:
+
+| Service | What it is | Reachable from |
+|---|---|---|
+| `bot-service` | Python: embeddings, retrieval, sheet readers | the compose network only |
+| `api` | Node + Express: accounts, billing, credits, admin | Caddy, and `127.0.0.1:8000` |
+| `web` | Next.js: the dashboard and landing page | Caddy, and `127.0.0.1:3000` |
+| `caddy` | TLS | the internet, on 80 and 443 |
+
+The first build takes **15–30 minutes** on two ARM cores. Almost all of that
+is `bot-service` — installing torch and baking the embedding model into the
+image — so the first request after a restart isn't slow. `api` and `web` build
+in a couple of minutes between them, which matters later: a change to billing
+or the dashboard rebuilds those two and leaves the heavy image alone.
+
+Startup order is handled for you. `api` waits for `bot-service` to report
+healthy, and `web` waits for `api`. `bot-service` takes a minute or two to get
+there because it loads the embedding model before answering — that is expected,
+not a hang.
 
 Check it's working:
 
 ```bash
-docker compose ps                             # nexora and caddy should be "Up"
+docker compose ps                             # four services, all "Up"
 curl https://yourname.duckdns.org/health      # {"status":"ok"}
+```
+
+`docker compose ps` should show `bot-service` as `Up (healthy)`. If it sits at
+`Up (health: starting)` for more than five minutes, look at its log — it is
+almost always memory (see [Troubleshooting](#13-troubleshooting)):
+
+```bash
+docker compose logs -f bot-service
 ```
 
 Then open `https://yourname.duckdns.org` in a browser and create an account.
@@ -191,37 +259,84 @@ To create an unlimited owner key (there is deliberately no web endpoint for
 this):
 
 ```bash
-docker compose exec nexora python backend/scripts/create_owner_key.py you@example.com "Your Name"
+docker compose exec api npm run create-owner-key -- you@example.com "Your Name"
 ```
 
-## 9. Optional: Google sign-in
+## 8b. Check it end to end
 
-Without these settings, the "Continue with Google" button stays hidden and
-email/password sign-in still works.
+Five minutes now saves a confused bug report later. In a browser:
 
-**In [Google Cloud Console](https://console.cloud.google.com/apis/credentials)**,
-open your OAuth 2.0 client and add:
+| # | Do this | Expect |
+|---|---|---|
+| 1 | Open `https://yourname.duckdns.org` | The landing page, with a padlock in the address bar |
+| 2 | Create an account with an email and password | You land on the dashboard |
+| 3 | Dashboard → pick a template → upload a small FAQ sheet (CSV with Question and Answer columns) | "Indexed N questions" |
+| 4 | Dashboard → "Try it" → ask one of those questions | The stored answer comes back |
+| 5 | Dashboard → create an API key → run the `curl` shown on the dashboard | A JSON answer, with `X-Credits-Remaining` in the headers |
+| 6 | Dashboard → "Put it on your website" → download a widget package | A zip downloads; its README shows your `https://` domain, not `localhost` |
+| 7 | Open `https://yourname.duckdns.org/admin` and sign in | The admin panel, with your account listed |
+| 8 | Click the Support button, send a message, then open `/admin/support` | The message is in the inbox |
 
-| Field | Value |
+If you set up Firebase (step 9), also check that "Continue with Google" appears
+on the sign-in page and completes.
+
+Failures here almost always map to a row in
+[Troubleshooting](#13-troubleshooting).
+
+## 9. Optional: Firebase sign-in
+
+Without these settings the "Continue with Google" button stays hidden and
+sign-in falls back to the local password path.
+
+Firebase runs the sign-in; this server verifies the ID token it issues and
+turns it into the same session cookie a password login produces.
+
+**In the [Firebase console](https://console.firebase.google.com)** for your
+project:
+
+| Where | What |
 |---|---|
-| Authorized JavaScript origins | `https://yourname.duckdns.org` |
-| Authorized redirect URIs | `https://yourname.duckdns.org/api/auth/google/callback` |
+| Authentication -> Sign-in method | Enable **Google** and **Email/Password**. Neither is on in a new project. |
+| Authentication -> Settings -> Authorized domains | Add `yourname.duckdns.org`. Sign-in fails with `auth/unauthorized-domain` without it. |
+| Project Settings -> General -> Your apps -> Web | Register a web app and copy its config. |
+| Project Settings -> Service accounts | Generate a new private key. This is the server credential. |
 
-**In `.env`:**
+**In `.env`** — the server half. This is a private key that can mint
+credentials for any user in the project, so it stays here and never reaches
+the browser:
 
 ```bash
-GOOGLE_CLIENT_ID=<client id>
-GOOGLE_CLIENT_SECRET=<client secret>
-GOOGLE_REDIRECT_URI=https://yourname.duckdns.org/api/auth/google/callback
+FIREBASE_PROJECT_ID=<project id>
+FIREBASE_CLIENT_EMAIL=<service account email>
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
+MII...
+-----END PRIVATE KEY-----
+"
 ```
 
-The redirect URI must match **exactly** in both places: `https`, same domain,
-no trailing slash. Otherwise Google shows `redirect_uri_mismatch`.
+Keep the newlines escaped and the value quoted, or the shell eats the
+escapes and the PEM fails to parse.
 
-Apply it:
+**Also in `.env`** — the browser half. These are public: Vite inlines them
+into the bundle every visitor downloads. A Firebase web apiKey is a project
+identifier, not a secret.
 
 ```bash
-docker compose --profile tls up -d
+NEXT_PUBLIC_FIREBASE_API_KEY=<apiKey>
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=<project id>.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=<project id>
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=<project id>.firebasestorage.app
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<sender id>
+NEXT_PUBLIC_FIREBASE_APP_ID=<app id>
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
+```
+
+The `NEXT_PUBLIC_*` values are read at **build** time, not run time — they are
+passed to the image as build args by `docker-compose.yml`. Changing one means
+rebuilding, not just restarting:
+
+```bash
+docker compose --profile tls up -d --build
 ```
 
 ## 10. Optional: LLM features
@@ -300,23 +415,38 @@ model to another costs a model load of tens of seconds. From now on, include
 
 ```bash
 cd ~/nexora
-git pull
-docker compose --profile tls up -d --build    # add --profile llm if you use Ollama
+git pull                                      # or re-upload and unzip
+docker compose --profile tls up -d --build
 ```
 
-Data survives updates: everything (accounts, FAQ vectors, support messages,
-rate limits) lives in MongoDB Atlas, not in the container.
+Compose rebuilds only what changed. That is worth knowing here, because the
+three images are very different sizes:
 
-> `docker compose down -v` only deletes local volumes (Caddy's certificates and
-> Ollama's downloaded models). Your data is safe, but you'd re-download those.
+| Changed | Rebuilds | Roughly |
+|---|---|---|
+| `next-frontend/` | `web` | 1–2 min |
+| `node-backend/` | `api` | 1–2 min |
+| `bot-service/` | `bot-service` | 15–25 min |
+| `requirements.txt` in `bot-service/` | `bot-service`, from the torch layer down | 20–30 min |
 
-Useful commands:
+So a change to pricing, the admin panel or the dashboard is a two-minute
+deploy. Only a change to retrieval, the readers or the Python dependencies
+pays for the heavy image.
+
+To rebuild one service without touching the others:
 
 ```bash
-docker compose logs -f nexora      # app logs
-docker compose logs -f caddy       # certificate issues
-docker compose restart nexora      # restart the app only
+docker compose --profile tls up -d --build api
 ```
+
+**A note on the `NEXT_PUBLIC_*` values.** They are compiled into the browser
+bundle at build time, so changing them in `.env` does nothing until `web` is
+rebuilt — `docker compose restart web` will not pick them up. Everything else
+(`MONGO_URI`, the admin key, the Firebase service account, every threshold) is
+read at run time, so those only need a restart.
+
+Roll back by checking out the previous commit and running the same command;
+nothing in the database changes shape between builds.
 
 ## 12. Backups
 
@@ -343,10 +473,17 @@ backups off the instance.
 | No certificate, Caddy keeps retrying | Port 80 closed in the VCN or `iptables`, or DNS doesn't point at the instance yet |
 | Site loads, but nobody stays signed in | `BILLING_COOKIE_SECURE` isn't `true`, or `PUBLIC_BASE_URL` is still `http://` |
 | Container restarts in a loop | `MONGO_URI` is wrong, or the instance IP isn't in Atlas Network Access |
+| `bot-service` stuck at `health: starting` for 5+ min | It is loading the embedding model. Past that, it is almost always memory — check `docker compose logs bot-service` for an OOM kill and confirm the swap file from step 4 is active (`free -h`) |
+| `api` won't start, log says it is waiting | `bot-service` never became healthy. Fix that first; `api` depends on it |
+| Templates or `/v1/ask` return 503 | `api` cannot reach `bot-service`. Check both are `Up`, and that `INTERNAL_API_KEY` is the **same value** in both — a mismatch gives 403 from the bot service, which `api` reports as unavailable |
+| Everything is `Up` but the site 502s | `web` is running but `api` isn't healthy, or Caddy is routing to the wrong upstream. `curl 127.0.0.1:3000` and `curl 127.0.0.1:8000/health` from the host to see which half is down |
 | `/health` works, but templates return 500 | Same as above: the app starts, but can't reach the database |
-| Google sign-in shows `redirect_uri_mismatch` | `GOOGLE_REDIRECT_URI` doesn't exactly match the URI in Google Cloud Console |
+| Google sign-in shows `auth/unauthorized-domain` | The domain isn't in Firebase -> Authentication -> Settings -> Authorized domains |
+| Google button doesn't appear at all | `NEXT_PUBLIC_FIREBASE_API_KEY`/`NEXT_PUBLIC_FIREBASE_APP_ID` were empty at **build** time — rebuild with `--build` |
+| Sign-in fails with `auth/operation-not-allowed` | The provider isn't enabled under Firebase -> Authentication -> Sign-in method |
 | Widget installs but never connects | `PUBLIC_API_ORIGIN` unset or `http://`. Fix it, then download the package again |
 | Assistant says the model is unavailable | `ASSISTANT_ENABLED` not `true`, no provider keys set, or Ollama started without `--profile llm` |
-| A setting in `.env` has no effect | It isn't listed under `environment:` in `docker-compose.yml`, or the container wasn't recreated (`up -d`) |
+| A setting in `.env` has no effect | It isn't listed under `environment:` in `docker-compose.yml`, or the container wasn't recreated (`up -d`). A `NEXT_PUBLIC_*` value needs `--build`, not just `up -d` |
+| `/admin` won't accept the password | `ADMIN_PASSWORD` is empty in `.env`, or the container wasn't recreated after setting it. Five wrong tries lock that address out for 15 minutes |
 | Bots answer "no indexed FAQ sheet" | The sheet was never uploaded to this database, or `MONGO_URI`/`MONGO_DB_NAME` points at a different database than before |
 | Atlas says the storage quota is full | FAQ vectors are the largest collection (`faq_vectors`). Remove unused bots or move off the 512 MB M0 tier |

@@ -191,57 +191,93 @@ ollama pull qwen2.5:3b && ollama pull llama3.2:3b && ollama pull gemma2:2b
 
 ## Running locally
 
-**Requirements:** Python 3.10+, Node 20+, and MongoDB (an Atlas cluster or a
+**Requirements:** Node 20+, Python 3.10+, and MongoDB (an Atlas cluster or a
 local server). All data, including FAQ vectors, is stored there. Ollama and the
 Groq/Gemini keys are optional.
 
+Three terminals.
+
 ```bash
-# 1. Configure
+# 0. Configure — one .env at the repo root, read by all three services
 cp .env.example .env          # then set MONGO_URI, ADMIN_API_KEY, etc.
 
-# 2. Backend: http://localhost:8000 (API docs at /docs)
+# 1. Bot service: http://localhost:8001 (internal — loopback only)
+cd bot-service
 python -m venv .venv
 source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn backend.server:app --reload --port 8000
+uvicorn main:app --host 127.0.0.1 --port 8001
 
-# 3. Frontend: http://localhost:5173 (proxies /api to the backend)
-cd frontend
+# 2. API: http://localhost:8000
+cd node-backend
 npm install
+npm run dev
+
+# 3. Web: http://localhost:3000 (proxies /api and /v1 to the API)
+cd next-frontend
+npm install
+cp .env.example .env.local    # add your Firebase values
 npm run dev
 ```
 
-The first request takes 10–15 seconds while the embedding model
-(`all-MiniLM-L6-v2`) loads. After that, it stays in memory.
+The bot service loads the embedding model (`all-MiniLM-L6-v2`) at startup
+rather than on first request, so it takes 10–15 seconds to become healthy and
+is warm from then on. The other two start immediately.
+
+**Shortcut.** To run the API and the bot service together against a throwaway
+in-memory MongoDB — no Atlas, no local mongod, nothing to clean up afterwards:
+
+```bash
+cd node-backend && npm run build && node run-stack.mjs
+```
 
 **Owner key.** An unlimited `nxo_` key can only be created with a local script.
 There is deliberately no HTTP endpoint for it:
 
 ```bash
-python backend/scripts/create_owner_key.py owner@example.com "Your Name"
+cd node-backend && npm run create-owner-key -- owner@example.com "Your Name"
 ```
 
-**Hugging Face demo only:**
+**Hugging Face demo only** — one file, no database, no other service:
 
 ```bash
-pip install gradio && python app.py
+pip install -r requirements.txt && python app.py
 ```
 
 ### Tests
 
 ```bash
-pytest
+cd node-backend
+npm run build
+node smoke-test.mjs      # 66 checks — boots the whole stack
+node route-parity.mjs    # every endpoint is still mounted
 ```
 
-The test suite needs no MongoDB server, Ollama, Groq, Gemini or embedding model. It uses
-`mongomock`, deterministic fake embeddings, and a fake HTTP transport for LLM
-providers.
+`smoke-test.mjs` starts a throwaway in-memory MongoDB, starts the Python bot
+service against it, starts the API against both, and walks the paths a customer
+actually takes: sign up, sign in, dashboard, template, sheet upload, API key,
+`/v1/ask`, billing, admin, logout. One command, nothing to install, nothing left
+behind. If Python or its dependencies are missing, the retrieval steps are
+reported as skipped rather than failed.
+
+For the web app:
+
+```bash
+cd node-backend  && node run-stack.mjs          # terminal 1
+cd next-frontend && npm run build && npm start  # terminal 2
+cd next-frontend && node e2e-check.mjs          # terminal 3 — 29 checks
+```
+
+Those assert the server-rendered HTML: that prices and templates are *in* it,
+that a signed-out visitor to `/dashboard` is redirected before any markup is
+sent, and that the admin key never reaches the server.
 
 ### Deploying
 
 For a full production setup on an Oracle Cloud Always Free instance (Docker,
 Caddy with TLS, swap, optional Ollama profile), follow
-[DEPLOY.md](DEPLOY.md). The short version:
+[DEPLOY.md](DEPLOY.md). The short version is unchanged — compose builds all
+three services:
 
 ```bash
 docker compose --profile tls up -d --build
@@ -258,8 +294,10 @@ every one of them. These are the main ones:
 |---|---|---|
 | `MONGO_URI` / `MONGO_DB_NAME` | local / `nexora` | Database |
 | `ADMIN_API_KEY` | — | Opens `/admin`, the support inbox and key management. **Change it.** |
-| `WEB_ORIGINS` | `http://localhost:5173,…` | Origins allowed to call `/api` with the session cookie |
-| `PUBLIC_BASE_URL` | `http://localhost:5173` | Where the frontend is served from |
+| `WEB_ORIGINS` | `http://localhost:3000,…` | Origins allowed to call `/api` with the session cookie |
+| `PUBLIC_BASE_URL` | `http://localhost:3000` | Where the frontend is served from |
+| `BOT_SERVICE_URL` | `http://127.0.0.1:8001` | Where the Node backend finds the Python bot service |
+| `INTERNAL_API_KEY` | empty | Shared secret between those two. Not a user credential — set it in production. |
 | `PUBLIC_API_ORIGIN` | request's own URL | API address written into widget packages. Set it when the server is behind a proxy. |
 | `DAILY_CREDIT_LIMIT` | `250` | Daily credits for an account with no plan |
 | `STRONG_MATCH_THRESHOLD` / `NEAR_MATCH_THRESHOLD` | `0.85` / `0.60` | Default match thresholds. Each template overrides them. |
@@ -275,34 +313,169 @@ every one of them. These are the main ones:
 | `LLM_PROVIDER_ORDER` | `ollama,groq,gemini` | Which providers are tried, and in what order |
 | `LLM_COOLDOWN_SECONDS` | `60` | How long a failing model is skipped |
 | `LLM_BAD_KEY_COOLDOWN_SECONDS` | `3600` | How long a key the provider rejects is skipped |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | empty | Optional Google sign-in |
+| `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | empty | Firebase service account. Verifies ID tokens. **Private key — never in a `NEXT_PUBLIC_` variable.** |
+| `FIREBASE_REQUIRE_VERIFIED_EMAIL` | `true` | Refuse sign-ins whose mailbox Firebase has not confirmed. Leave on. |
+| `NEXT_PUBLIC_FIREBASE_*` | empty | The web app config. Public, inlined into the bundle **at build time**. |
+| `TELEMETRY_ENABLED` | `true` | Accept client crash reports at `/api/telemetry/error` |
+| `TELEMETRY_RETENTION_DAYS` | `30` | How long crash reports are kept before MongoDB expires them |
 
 > Never commit `.env`. It is already in `.gitignore`. If a key has been pasted
 > anywhere public, rotate it.
 
 ---
 
+## Firebase
+
+Firebase runs the **sign-in**. It does not run the **session**.
+
+The browser signs in with Firebase (Google popup, or email and password),
+gets an ID token, and posts it once to `/api/auth/firebase`. The server
+verifies that token against this project's keys and issues the same httpOnly
+`nexora_session` cookie a password login has always produced. Everything
+downstream — billing, credits, referrals, the widget, the admin panel — keeps
+resolving identity exactly one way.
+
+That is deliberate. Trusting the ID token on every request would mean two
+ways to be authenticated, and one of them lives in JavaScript memory where an
+injected script can read it. The cookie is httpOnly and revocable
+server-side; a Firebase ID token is neither.
+
+Accounts that predate Firebase keep working. A password account signing in
+with Google on the same (verified) address is *linked*, not duplicated, and
+keeps its password — see `_resolve_firebase_customer` in
+[backend/billing/router.py](backend/billing/router.py) for the four cases.
+
+### Console setup
+
+The code is complete, but four things have to be switched on by hand. None of
+them can be done from here.
+
+1. **Register a web app** — Firebase Console → Project Settings → General →
+   Your apps → Web. Copy the config into the `NEXT_PUBLIC_FIREBASE_*` variables
+   in `next-frontend/.env.local`. Without `NEXT_PUBLIC_FIREBASE_API_KEY` and
+   `NEXT_PUBLIC_FIREBASE_APP_ID` the app
+   silently falls back to password-only sign-in.
+
+2. **Enable the providers** — Authentication → Sign-in method → enable
+   **Google** and **Email/Password**. Neither is on in a new project, and a
+   button for a disabled provider fails with
+   `auth/operation-not-allowed`.
+
+3. **Authorise your domains** — Authentication → Settings → Authorized
+   domains. `localhost` is there by default; add the production domain or
+   sign-in fails with `auth/unauthorized-domain`.
+
+4. **Register the custom dimensions** — GA4 Admin → Custom definitions. GA4
+   *collects* every custom parameter immediately but will not show one in a
+   report until it is registered. Worth doing first: `method`, `plan_id`,
+   `template_id`, `error_kind`, `feature`, `release`.
+
+### What is *not* here: Crashlytics
+
+Firebase Crashlytics has no Web SDK. It ships for Android, iOS, Flutter and
+Unity only, and there is no `firebase/crashlytics` import for a browser app.
+
+The equivalent is built from the two things that do exist:
+
+- **A GA4 `exception` event** — Google's recommended crash event, which feeds
+  its own report in the Firebase console. Gives the rate, the trend and the
+  affected release. Does *not* give a stack trace; GA4 truncates parameters
+  at 100 characters.
+- **`POST /api/telemetry/error`** — carries the full stack, the component
+  stack, the route and the release into MongoDB, grouped by fingerprint and
+  TTL-expired. This is the half you read when something breaks.
+
+Both fire from [frontend/src/lib/errorReporting.ts](frontend/src/lib/errorReporting.ts),
+which hooks `window.onerror`, `unhandledrejection` and the React error
+boundary. Read the grouped view at `GET /api/admin/crashes`, and the raw feed
+with stacks at `GET /api/admin/crashes/recent`.
+
+Identical crashes are deduplicated within 10 seconds and capped at 25 reports
+per page load. A component that throws on every render remounts and throws
+again hundreds of times a second, and without those guards the first such bug
+to reach production would flood its own telemetry endpoint.
+
+### Analytics
+
+Every event name lives in one typed catalogue,
+[frontend/src/lib/analytics.ts](frontend/src/lib/analytics.ts). GA4 keeps
+whatever name it is first sent and offers no rename, so a typo becomes a
+permanent second event that quietly splits a funnel in two — naming them in
+one place makes that a build error instead.
+
+GA4's own recommended names (`login`, `sign_up`, `purchase`,
+`begin_checkout`, `view_item_list`, `share`, `search`, `exception`,
+`page_view`) are used wherever one fits, so the standard reports light up
+rather than needing a custom exploration per question.
+
+**No PII reaches Analytics.** No email addresses, names, API keys, message
+bodies or search text — Google's terms prohibit it and an account can be
+terminated over it. `sanitise()` redacts anything shaped like an address as a
+backstop, but the rule is upstream: send counts, ids, durations and
+categories, never the thing the user typed. `identify()` sets the *customer
+id*, never the email.
+
+Page views are tracked manually. GA4's automatic `page_view` fires once on
+the initial document load and never again, because React Router changes the
+URL without a navigation — so every route after the landing page would
+otherwise be invisible.
+
+### Performance
+
+`getPerformance()` starts the automatic traces (page load, first paint, every
+fetch). `measure()` in the analytics module adds custom traces around the
+slow paths that matter — sheet indexing, checkout, sign-in — and records the
+duration as an Analytics event too, because Performance gives you the
+distribution across real users and Analytics lets the duration sit beside the
+rest of the funnel. Neither alone tells you "checkout is slow for the people
+who then abandon it".
+
+### Building for production
+
+`NEXT_PUBLIC_*` variables are inlined **at build time**, not read at run time.
+The web Dockerfile takes them as build args and `docker-compose.yml` passes
+them through; set them in the `.env` next to the compose file. Miss this and
+the image ships with sign-in silently disabled and nothing in any log to say
+why.
+
+Everything else — `MONGO_URI`, the admin key, the Firebase *service account* —
+is read at run time by the Node and Python services, so those can be changed
+with a restart rather than a rebuild.
+
+---
+
 ## Project layout
 
 ```
-bot/                 what the bot may say
-  templates.py         the ten scope templates
-  graph.py             the LangGraph answer pipeline
-  grounding.py         optional LLM rewording and its fact check
-  readers.py, ingest.py  any uploaded file → Q/A rows → vectors
-  router.py            template picking, sheet upload, preview, POST /v1/ask
-  widget/              the seven chat designs, install packages, activation
-backend/             who is asking, whether they may, and whether they've paid
-  server.py            app setup: routers, CORS, SPA hosting
-  shared/              config, API keys & credits, guardrails, embeddings, llm.py
-  billing/             plans, checkout, sessions, Google sign-in, referrals
-  assistant/           the signed-in dashboard assistant
-  support/             customer ↔ staff messaging
-  admin/               cross-tenant admin panel (admin key)
-frontend/            React 18 + Vite + TypeScript dashboard and landing page
-tests/               backend and bot tests together
-app.py               Hugging Face Spaces demo
+bot-service/         Python — what the bot may say
+  main.py              the internal API the Node backend calls
+  bot/
+    templates.py         the ten scope templates
+    graph.py             the LangGraph answer pipeline
+    grounding.py         optional LLM rewording and its fact check
+    readers.py, ingest.py  any uploaded file → Q/A rows → vectors
+    widget/              the seven chat designs and install packages
+  backend/shared/      embeddings, vector store, guardrails, input policy, llm
+
+node-backend/        TypeScript — who is asking, and whether they've paid
+  src/server.ts        app setup: routers, CORS, startup sweep
+  src/shared/          config, API keys & credits, auth, rate limits, llm
+  src/billing/         plans, checkout, sessions, Firebase sign-in, referrals
+  src/assistant/       the signed-in dashboard assistant
+  src/support/         customer ↔ staff messaging
+  src/admin/           cross-tenant admin panel (admin key)
+  src/bot/             client.ts + router.ts — authenticate, charge, forward
+
+next-frontend/       Next.js 15 — the dashboard and landing page
+  app/                 routes; each one fetches on the server
+  screens/             the page components
+  lib/                 api-server.ts (RSC), api-client.ts (browser)
+
+_old/                the original FastAPI + Vite code, for reference
+app.py               Hugging Face Spaces demo (standalone)
 ```
 
-The rule for where code goes: code that decides what the bot **says** goes in
-`bot/`. Code that decides whether someone may **ask** goes in `backend/`.
+The rule for where code goes is unchanged, and is now a process boundary rather
+than a folder convention: code that decides what the bot **says** lives in
+`bot-service/`. Code that decides whether someone may **ask** lives in
+`node-backend/`. The two share a database and write disjoint halves of it.

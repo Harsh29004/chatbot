@@ -21,8 +21,9 @@ def _credentials(monkeypatch):
     monkeypatch.setattr(config, "ADMIN_USERNAME", "admin")
     monkeypatch.setattr(config, "ADMIN_PASSWORD", "correct horse battery")
     monkeypatch.setattr(config, "ADMIN_SESSION_HOURS", 12)
-    # verify_admin_key imported the key at module load; keep it in step.
-    monkeypatch.setattr("backend.shared.auth.ADMIN_API_KEY", "test-admin-key")
+    # No second patch for backend.shared.auth: verify_admin_key reads the key
+    # off config per call now. It used to bind a copy at import, and patching
+    # that copy was how a fake key leaked into every later test module.
     yield
 
 
