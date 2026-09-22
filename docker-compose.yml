@@ -68,6 +68,12 @@ services:
       # See bot-service/main.py: the torch default is badly wrong for a
       # model this small, by a factor of 24 on a many-core host.
       - TORCH_THREADS=${TORCH_THREADS:-2}
+      # Embedding is the only slow thing in the stack, so this is the only
+      # knob that changes throughput. One worker answers ~110 req/s; raise it
+      # when many people ask at once, and drop TORCH_THREADS to 1 when you do
+      # — past one worker they compete for the same cores. Each worker holds
+      # its own copy of the model, about 400 MB.
+      - BOT_WORKERS=${BOT_WORKERS:-1}
       - STRONG_MATCH_THRESHOLD=${STRONG_MATCH_THRESHOLD:-0.85}
       - NEAR_MATCH_THRESHOLD=${NEAR_MATCH_THRESHOLD:-0.60}
       - TOP_K=${TOP_K:-3}

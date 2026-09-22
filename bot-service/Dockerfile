@@ -46,7 +46,29 @@ COPY main.py .
 # compose publishes nothing for it.
 EXPOSE 8001
 
-# One worker. A second would load a second copy of the model into memory —
-# and on the kind of box this is built for, that is the difference between
-# comfortable and swapping. Scale with replicas, not workers.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
+# How many worker processes, and how many torch threads each one gets.
+#
+# This is the only knob that matters for throughput, because embedding is the
+# only slow thing in the stack — Node answers 2,400+ req/s, MongoDB 960, this
+# service around 110. Measured, one short query each, on a 20-core host:
+#
+#     1 worker  x 2 threads    80 req/s    12 ms
+#     2 workers x 2 threads   132 req/s    15 ms
+#     4 workers x 2 threads   155 req/s    26 ms
+#     4 workers x 1 thread    170 req/s    20 ms
+#     6 workers x 1 thread    187 req/s    23 ms
+#
+# Two things worth reading off that. It scales, but sublinearly — six workers
+# buy 2.3x, not 6x, because the work is already memory-bandwidth bound. And
+# past one worker, *one* thread each beats two: the workers stop competing for
+# the same cores.
+#
+# So: one worker while a single request should be as fast as possible, more
+# workers when many arrive at once. Each one holds its own copy of the model,
+# roughly 400 MB with torch, which is what caps this on a small box.
+#
+# Defaults suit a 2-4 core instance. Shell form so the variables expand.
+ENV BOT_WORKERS=1 \
+    TORCH_THREADS=2
+
+CMD uvicorn main:app --host 0.0.0.0 --port 8001 --workers ${BOT_WORKERS}
