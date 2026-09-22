@@ -65,6 +65,9 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?set INTERNAL_API_KEY before starting}
 
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      # See bot-service/main.py: the torch default is badly wrong for a
+      # model this small, by a factor of 24 on a many-core host.
+      - TORCH_THREADS=${TORCH_THREADS:-2}
       - STRONG_MATCH_THRESHOLD=${STRONG_MATCH_THRESHOLD:-0.85}
       - NEAR_MATCH_THRESHOLD=${NEAR_MATCH_THRESHOLD:-0.60}
       - TOP_K=${TOP_K:-3}

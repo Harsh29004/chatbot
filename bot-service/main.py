@@ -44,6 +44,42 @@ import logging
 import os
 from typing import Any, Literal, Optional
 
+# ---------------------------------------------------------------------------
+# Torch threading — set before anything imports the model
+# ---------------------------------------------------------------------------
+# This is worth more than it looks. Torch defaults to one thread per core, and
+# for a 22M-parameter model embedding one short sentence, the cost of splitting
+# that work across cores and joining it back dwarfs the work itself. Measured
+# on a 12-core box, one query:
+#
+#     12 threads (default)  273 ms
+#      8 threads             98 ms
+#      4 threads             12 ms
+#      2 threads             11 ms
+#      1 thread              14 ms
+#
+# A 24x difference, entirely from a setting nobody chose. The default is tuned
+# for training a large model, not for answering one question with a small one.
+#
+# Two is the floor of the flat part of that curve and is also what a small
+# cloud instance has, so it is both the fast choice and the honest one. Raise
+# it with TORCH_THREADS if a deployment is doing bulk ingest, where batches are
+# large enough for the parallelism to pay for itself.
+#
+# Set here, before `from bot import ...` pulls in sentence-transformers, since
+# torch reads this at import.
+try:
+    import torch
+
+    torch.set_num_threads(int(os.getenv("TORCH_THREADS", "2")))
+    # Inter-op parallelism is for running independent graph branches at once.
+    # There is one branch here, so extra threads only add scheduling.
+    torch.set_num_interop_threads(1)
+except (ImportError, RuntimeError):
+    # RuntimeError: interop threads can only be set once per process, and a
+    # reloader may have done it already. Neither is worth failing startup over.
+    pass
+
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
